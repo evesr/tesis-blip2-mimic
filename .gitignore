@@ -1,0 +1,82 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Jupyter Notebooks
+.ipynb_checkpoints
+*.ipynb
+
+# Logs y outputs
+*.log
+logs/
+training.log
+
+# Modelos y checkpoints
+modelo_entrenado/
+checkpoints/
+*.pth
+*.bin
+*.safetensors
+
+# Datos (descomentar si no quieres versionar datos)
+*.csv
+imagenes_1_porciento/
+files/
+
+# Resultados de evaluación
+evaluacion/
+resultados_evaluacion.csv
+*.png
+*.jpg
+graficos/
+
+# Cache de Hugging Face
+.cache/
+huggingface/
+
+# Pytest
+.pytest_cache/
+.coverage
+htmlcov/
+
+# MyPy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Temporal
+test_modelo_output/
+temp/
+tmp/

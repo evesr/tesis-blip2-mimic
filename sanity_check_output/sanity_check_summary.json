@@ -1,0 +1,8 @@
+{
+  "loss_inicial": 23.020521545410155,
+  "loss_final": 0.7541677474975585,
+  "reduccion_pct": 96.72393283527529,
+  "steps_totales": 150,
+  "epochs_completadas": 50.0,
+  "status": "ACEPTABLE"
+}
