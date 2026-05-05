@@ -164,7 +164,7 @@ class InferenceConfig:
         early_stopping: Si detener generación anticipadamente
         default_prompt: Prompt por defecto para generación
     """
-    max_new_tokens: int = 150
+    max_new_tokens: int = 400
     min_length: int = 30
     num_beams: int = 5
     do_sample: bool = True

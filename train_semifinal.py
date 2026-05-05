@@ -1,20 +1,39 @@
 """
-Entrenamiento Semifinal - Top 3 Configuraciones LoRA con Early Stopping
-========================================================================
+Entrenamiento Semifinal - 3 Configuraciones LoRA con Early Stopping por Steps
+==============================================================================
 
-OBJETIVO 2: Script de entrenamiento con:
-- 3 configuraciones específicas de LoRA (r=16/α=32, r=16/α=16, r=32/α=64)
-- Early stopping (patience=3 épocas)
-- 50 épocas máximo (pero early stopping detiene antes)
-- Gráficos comparativos finales
-- Limpieza agresiva de memoria
+Objetivos implementados:
 
-OBJETIVO 3: Optimizaciones:
-- cv2.setNumThreads(0) para prevenir deadlocks
-- dataloader_num_workers=4 y pin_memory=True
+OBJETIVO 1 - Infraestructura:
+  • cv2.setNumThreads(0) antes de importar torch (previene deadlocks)
+  • DataLoader con num_workers=4 y pin_memory=True
+  • Aislamiento total por config: Trainer nuevo → global_step y epoch se
+    resetean a 0 en cada config (evita bug de duplicación de épocas)
+  • max_epochs = 50 (límite fijo por config)
 
-Autor: Sistema de ML
-Fecha: Abril 2026
+OBJETIVO 2 - Prompting dinámico:
+  • MimicCXRDataset._mapear_vista(): PA/AP → Frontal, LL/LATERAL → Lateral
+  • Prompt en __getitem__: "[Context: {vista} view] {config.inference.default_prompt}"
+    (editado en data_loader.py)
+
+OBJETIVO 3 - Entrenamiento y checkpoints:
+  • gradient_accumulation_steps=4 → batch efectivo = 16
+  • eval_strategy="steps", eval_steps=50
+  • EarlyStoppingCallback: patience=10 evaluaciones (no épocas)
+  • SemifinalAuditCallback guarda:
+      - ./checkpoints/latest_model_Config_X en cada evaluación
+      - ./checkpoints/best_model_Config_X  cuando val_loss mejora
+
+OBJETIVO 4 - Auditoría:
+  • history_Config_X.csv: columnas Step, Val_Loss, BLEU, ROUGE-L
+  • audit_Config_X.txt:   Step | Vista | Predicción | Real  (3 muestras/eval)
+
+OBJETIVO 5 - Gráficos finales:
+  • Lee los 3 history_*.csv generados y guarda:
+      plots/01_val_loss.png, plots/02_bleu.png, plots/03_rougeL.png
+
+Autor: Evelyn Silva Rozas
+Fecha: Mayo 2026
 """
 
 import os
@@ -22,29 +41,31 @@ import gc
 import warnings
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional
+
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
-from tqdm import tqdm
 
-# OBJETIVO 3 - MODIFICACIÓN: Prevención de deadlocks OpenCV/PyTorch
+# OBJETIVO 1: cv2 DEBE importarse y desactivarse ANTES de torch/DataLoader
+# para prevenir deadlocks entre OpenCV y los workers de PyTorch.
 import cv2
-cv2.setNumThreads(0)  # ← CRÍTICO: Desactivar multithreading de OpenCV
+cv2.setNumThreads(0)
 
 import torch
 from transformers import (
-    Blip2Processor,
-    Blip2ForConditionalGeneration,
     TrainingArguments,
     Trainer,
     DataCollatorForSeq2Seq,
-    EarlyStoppingCallback  # OBJETIVO 2: Early stopping
+    EarlyStoppingCallback,
+    TrainerCallback,
+    TrainerState,
+    TrainerControl,
 )
-from peft import LoraConfig, get_peft_model, TaskType
+from peft import LoraConfig, get_peft_model
 
-# NLP Metrics
+# Métricas NLP
 from nltk.translate.bleu_score import sentence_bleu, SmoothingFunction
 from rouge_score import rouge_scorer
 
@@ -56,86 +77,248 @@ warnings.filterwarnings('ignore')
 sns.set_style("whitegrid")
 
 # ============================================================================
-# CONFIGURACIÓN DEL ENTRENAMIENTO SEMIFINAL
+# OBJETIVO 1: CONFIGURACIÓN GLOBAL
+# Configs correctas: Config4 (r=16,a=32), Config5 (r=16,a=16), Config6 (r=32,a=64)
 # ============================================================================
 
-print("\n" + "="*80)
-print("🏆 ENTRENAMIENTO SEMIFINAL - TOP 3 CONFIGURACIONES LoRA")
-print("="*80)
-print("\n📋 CONFIGURACIÓN:")
-print("   • Configuraciones a evaluar:")
-print("     - Config 4: r=16, alpha=32")
-print("     - Config 5: r=32, alpha=32")  # ← CORREGIDO
-print("     - Config 6: r=32, alpha=64")
-print("   • Learning rate: 1e-4 (fijo)")
-print("   • Épocas máximo: 50")
-print("   • Early Stopping: patience=3 (detiene si val_loss no mejora)")
-print("\n🛡️ OPTIMIZACIONES:")
-print("   ✓ cv2.setNumThreads(0) - Prevención deadlocks")
-print("   ✓ dataloader_num_workers=4 - CPU eficiente")
-print("   ✓ dataloader_pin_memory=True - GPU eficiente")
-print("   ✓ torch.cuda.empty_cache() entre configs")
-print("="*80 + "\n")
-
-# OBJETIVO 2 - CONFIGURACIÓN: 3 configuraciones específicas
 SEMIFINAL_CONFIGS = [
-    # {'name': 'Config_4', 'r': 16, 'alpha': 32},  # ← YA ENTRENADA - SALTADA
-    {'name': 'Config_5', 'r': 32, 'alpha': 32},  # ← CORREGIDO de r=16 a r=32
+    {'name': 'Config_4', 'r': 16, 'alpha': 32},
+    {'name': 'Config_5', 'r': 16, 'alpha': 16},
     {'name': 'Config_6', 'r': 32, 'alpha': 64},
 ]
 
 TRAINING_CONFIG = {
-    'lr': 1e-4,                    # Learning rate fijo
-    'max_epochs': 50,              # Máximo (early stopping detiene antes)
-    'early_stopping_patience': 3,  # OBJETIVO 2: Patience para early stopping
+    'lr': 1e-4,
+    'max_epochs': 50,               # OBJETIVO 1: límite fijo por config
+    'early_stopping_patience': 10,  # OBJETIVO 3: patience en nº de evaluaciones
     'batch_size': 4,
-    'gradient_accumulation': 4,
-    'eval_samples': 50,            # Muestras para BLEU/ROUGE
+    'gradient_accumulation': 4,     # OBJETIVO 3: batch efectivo = 16
+    'eval_steps': 50,               # OBJETIVO 3: evaluar cada 50 steps
+    'eval_samples': 50,             # muestras para BLEU/ROUGE en cada eval
+    'audit_samples': 3,             # reportes de muestra en audit log
 }
 
 OUTPUT_DIR = config.paths.base_dir / "semifinal_results"
+CHECKPOINTS_DIR = OUTPUT_DIR / "checkpoints"
 OUTPUT_DIR.mkdir(exist_ok=True)
+CHECKPOINTS_DIR.mkdir(exist_ok=True)
 
-print(f"📁 Resultados se guardarán en: {OUTPUT_DIR}\n")
+print("\n" + "="*80)
+print("🏆 ENTRENAMIENTO SEMIFINAL - 3 CONFIGURACIONES LoRA")
+print("="*80)
+print("   Config 4: r=16, α=32  |  Config 5: r=16, α=16  |  Config 6: r=32, α=64")
+print(f"   max_epochs={TRAINING_CONFIG['max_epochs']}  |  "
+      f"early_stop patience={TRAINING_CONFIG['early_stopping_patience']} evals  |  "
+      f"eval_steps={TRAINING_CONFIG['eval_steps']}")
+print(f"   batch={TRAINING_CONFIG['batch_size']} × grad_accum={TRAINING_CONFIG['gradient_accumulation']}"
+      f" → batch_efectivo={TRAINING_CONFIG['batch_size'] * TRAINING_CONFIG['gradient_accumulation']}")
+print(f"   Resultados en: {OUTPUT_DIR}")
+print("="*80 + "\n")
 
 # ============================================================================
-# INICIALIZACIÓN DE MÉTRICAS
+# UTILIDADES DE MÉTRICAS NLP
 # ============================================================================
 
-rouge_scorer_obj = rouge_scorer.RougeScorer(['rougeL'], use_stemmer=True)
-smoothing = SmoothingFunction()
+_rouge_scorer = rouge_scorer.RougeScorer(['rougeL'], use_stemmer=True)
+_smoothing = SmoothingFunction()
 
-def calculate_bleu4(reference: str, candidate: str) -> float:
-    """Calcula BLEU-4."""
-    ref_tokens = reference.lower().split()
-    cand_tokens = candidate.lower().split()
-    
+
+def _bleu4(reference: str, candidate: str) -> float:
+    """Calcula BLEU-4 con smoothing method1."""
     try:
-        score = sentence_bleu(
-            [ref_tokens],
-            cand_tokens,
+        return sentence_bleu(
+            [reference.lower().split()],
+            candidate.lower().split(),
             weights=(0.25, 0.25, 0.25, 0.25),
-            smoothing_function=smoothing.method1
+            smoothing_function=_smoothing.method1,
         )
-        return score
-    except:
+    except Exception:
         return 0.0
 
-def calculate_rougeL(reference: str, candidate: str) -> float:
+
+def _rougeL(reference: str, candidate: str) -> float:
     """Calcula ROUGE-L F-measure."""
-    scores = rouge_scorer_obj.score(reference, candidate)
-    return scores['rougeL'].fmeasure
+    return _rouge_scorer.score(reference, candidate)['rougeL'].fmeasure
+
+
+def evaluate_nlp_metrics(
+    model, val_dataset: MimicCXRDataset, processor, device, num_samples: int = 50
+) -> Dict[str, float]:
+    """
+    Evalúa BLEU-4 y ROUGE-L sobre un subset aleatorio del val set.
+    Usa model.generate() con greedy decoding (num_beams=1) para velocidad.
+    Libera memoria con gc.collect() + torch.cuda.empty_cache() al terminar.
+    """
+    model.eval()
+    bleu4_scores, rougeL_scores = [], []
+    indices = np.random.choice(len(val_dataset), min(num_samples, len(val_dataset)), replace=False)
+
+    with torch.no_grad():
+        for idx in indices:
+            try:
+                sample = val_dataset[idx]
+                pixel_values = sample['pixel_values'].unsqueeze(0).to(device)
+                outputs = model.generate(pixel_values=pixel_values, max_new_tokens=100, num_beams=1)
+                generated = processor.batch_decode(outputs, skip_special_tokens=True)[0]
+                reference = processor.batch_decode([sample['labels']], skip_special_tokens=True)[0]
+                bleu4_scores.append(_bleu4(reference, generated))
+                rougeL_scores.append(_rougeL(reference, generated))
+            except Exception:
+                continue
+
+    # OBJETIVO 1: Liberar memoria después de generar (post-generación)
+    gc.collect()
+    torch.cuda.empty_cache()
+    model.train()
+
+    return {
+        'bleu4':  float(np.mean(bleu4_scores))  if bleu4_scores  else 0.0,
+        'rougeL': float(np.mean(rougeL_scores)) if rougeL_scores else 0.0,
+    }
+
 
 # ============================================================================
-# CARGAR DATOS
+# OBJETIVO 4: CALLBACK DE AUDITORÍA, MÉTRICAS Y CHECKPOINTS
+# ============================================================================
+
+class SemifinalAuditCallback(TrainerCallback):
+    """
+    Callback ejecutado tras cada evaluación del Trainer.
+
+    OBJETIVO 3 — Checkpoints:
+      • Guarda pesos en ./checkpoints/latest_model_Config_X  (siempre)
+      • Guarda pesos en ./checkpoints/best_model_Config_X   (solo si val_loss mejora)
+
+    OBJETIVO 4 — Persistencia de auditoría:
+      • Appends a history_Config_X.csv: Step, Val_Loss, BLEU, ROUGE-L
+      • Appends a audit_Config_X.txt:   3 reportes formato
+        "Step: N | Vista: V | Predicción: P | Real: R"
+    """
+
+    def __init__(
+        self,
+        val_dataset: MimicCXRDataset,
+        processor,
+        config_name: str,
+        output_dir: Path,
+        checkpoints_dir: Path,
+        eval_samples: int = 50,
+        audit_samples: int = 3,
+    ):
+        self.val_dataset     = val_dataset
+        self.processor       = processor
+        self.config_name     = config_name
+        self.output_dir      = output_dir
+        self.checkpoints_dir = checkpoints_dir
+        self.eval_samples    = eval_samples
+        self.audit_samples   = audit_samples
+
+        # Paths de salida
+        self.history_path    = output_dir / f"history_{config_name}.csv"
+        self.audit_path      = output_dir / f"audit_{config_name}.txt"
+        self.best_model_dir  = checkpoints_dir / f"best_model_{config_name}"
+        self.latest_model_dir = checkpoints_dir / f"latest_model_{config_name}"
+
+        self.best_val_loss   = float('inf')
+        self.history: List[Dict] = []
+
+        # Inicializar archivos limpios para esta config
+        self.audit_path.write_text(
+            f"# Audit Log — {config_name}\n"
+            f"# Iniciado: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+        )
+
+    def on_evaluate(
+        self,
+        args: TrainingArguments,
+        state: TrainerState,
+        control: TrainerControl,
+        metrics: Optional[Dict] = None,
+        **kwargs,
+    ):
+        """Se ejecuta después de cada llamada a evaluate() dentro del Trainer."""
+
+        # El Trainer pasa el modelo actual en kwargs (puede haber cambiado tras
+        # load_best_model_at_end o restore_callback_states)
+        model  = kwargs.get('model', None)
+        if model is None:
+            return  # Sin modelo, no podemos hacer nada
+
+        step     = state.global_step
+        val_loss = (metrics or {}).get('eval_loss', None)
+
+        # Determinar el device del modelo (toma el primer parámetro entrenable)
+        try:
+            device = next(p for p in model.parameters() if p.requires_grad).device
+        except StopIteration:
+            device = next(model.parameters()).device
+
+        # --- OBJETIVO 4: Calcular BLEU y ROUGE-L con model.generate() ---
+        nlp = evaluate_nlp_metrics(model, self.val_dataset, self.processor, device, self.eval_samples)
+
+        # --- OBJETIVO 4: Guardar métricas en history_Config_X.csv ---
+        self.history.append({
+            'Step':    step,
+            'Val_Loss': val_loss,
+            'BLEU':    nlp['bleu4'],
+            'ROUGE-L': nlp['rougeL'],
+        })
+        pd.DataFrame(self.history).to_csv(self.history_path, index=False)
+
+        print(
+            f"\n   📊 [Step {step}] "
+            f"val_loss={val_loss:.4f}  BLEU={nlp['bleu4']:.4f}  ROUGE-L={nlp['rougeL']:.4f}"
+        )
+
+        # --- OBJETIVO 3: Guardar latest_model en cada evaluación ---
+        model.save_pretrained(str(self.latest_model_dir))
+
+        # --- OBJETIVO 3: Guardar best_model si val_loss mejoró ---
+        if val_loss is not None and val_loss < self.best_val_loss:
+            self.best_val_loss = val_loss
+            model.save_pretrained(str(self.best_model_dir))
+            print(f"   🏆 Nuevo mejor modelo guardado (val_loss={val_loss:.4f})")
+
+        # --- OBJETIVO 4: Audit log — 3 reportes de muestra ---
+        audit_indices = np.random.choice(
+            len(self.val_dataset), min(self.audit_samples, len(self.val_dataset)), replace=False
+        )
+        with open(self.audit_path, 'a') as f:
+            f.write(f"\n{'─' * 80}\n")
+            for idx in audit_indices:
+                try:
+                    sample = self.val_dataset[idx]
+                    row    = self.val_dataset.data.iloc[idx]
+                    # Obtener vista usando el mismo método del Dataset
+                    view   = self.val_dataset._mapear_vista(row.get('ViewPosition', None))
+
+                    pixel_values = sample['pixel_values'].unsqueeze(0).to(device)
+                    with torch.no_grad():
+                        out = model.generate(pixel_values=pixel_values, max_new_tokens=100, num_beams=1)
+                    generated = self.processor.batch_decode(out, skip_special_tokens=True)[0]
+                    reference = self.processor.batch_decode([sample['labels']], skip_special_tokens=True)[0]
+
+                    f.write(
+                        f"Step: {step} | Vista: {view} | "
+                        f"Predicción: {generated[:300]} | "
+                        f"Real: {reference[:300]}\n"
+                    )
+                except Exception as e:
+                    f.write(f"Step: {step} | Error en muestra {idx}: {e}\n")
+
+        # OBJETIVO 1: Liberar memoria post-generación del audit log
+        gc.collect()
+        torch.cuda.empty_cache()
+
+
+# ============================================================================
+# CARGAR DATOS — una sola vez, compartidos entre las 3 configs
 # ============================================================================
 
 print("📂 Cargando datasets...\n")
 
-# Cargar procesador usando model_utils.py
 processor = cargar_procesador(model_name=config.model.model_name)
 
-# Crear datasets (con soft metadata tagging ya integrado en MimicCXRDataset)
 train_dataset = MimicCXRDataset(
     csv_path=config.paths.train_csv,
     images_dir=config.paths.images_dir,
@@ -144,7 +327,7 @@ train_dataset = MimicCXRDataset(
     clahe_clip_limit=config.data.clahe_clip_limit,
     clahe_tile_grid_size=config.data.clahe_tile_grid_size,
     max_length=config.data.max_length,
-    padding=config.data.padding
+    padding=config.data.padding,
 )
 
 val_dataset = MimicCXRDataset(
@@ -155,463 +338,301 @@ val_dataset = MimicCXRDataset(
     clahe_clip_limit=config.data.clahe_clip_limit,
     clahe_tile_grid_size=config.data.clahe_tile_grid_size,
     max_length=config.data.max_length,
-    padding=config.data.padding
+    padding=config.data.padding,
 )
 
-print(f"   ✅ Train: {len(train_dataset)} muestras")
-print(f"   ✅ Val: {len(val_dataset)} muestras\n")
+data_collator = DataCollatorForSeq2Seq(tokenizer=processor.tokenizer, padding=True)
 
-# Data collator
-data_collator = DataCollatorForSeq2Seq(
-    tokenizer=processor.tokenizer,
-    padding=True
-)
+print(f"   ✅ Train: {len(train_dataset):,} muestras")
+print(f"   ✅ Val:   {len(val_dataset):,} muestras\n")
+
 
 # ============================================================================
-# FUNCIÓN DE EVALUACIÓN CON MÉTRICAS NLP
+# FUNCIÓN DE ENTRENAMIENTO POR CONFIGURACIÓN
 # ============================================================================
 
-def evaluate_model_on_val(model, val_dataset, processor, device, num_samples=50):
+def train_single_config(config_dict: dict, config_num: int, total_configs: int) -> Dict:
     """
-    Evalúa modelo en subset del val set calculando BLEU-4 y ROUGE-L.
-    """
-    model.eval()
-    
-    bleu4_scores = []
-    rougeL_scores = []
-    
-    # Tomar subset aleatorio del val set
-    indices = np.random.choice(len(val_dataset), min(num_samples, len(val_dataset)), replace=False)
-    
-    with torch.no_grad():
-        for idx in indices:
-            try:
-                # Obtener muestra
-                sample = val_dataset[idx]
-                
-                # Preparar imagen para generación
-                pixel_values = sample['pixel_values'].unsqueeze(0).to(device)
-                
-                # Tokenizar prompt (ya incluye contexto de vista en el dataset)
-                # El dataset ya formateó el prompt con "[Context: X view] Question: ..."
-                # Aquí solo generamos sin prompt adicional
-                outputs = model.generate(
-                    pixel_values=pixel_values,
-                    max_new_tokens=100,
-                    num_beams=1,  # Greedy para velocidad
-                    early_stopping=True
-                )
-                
-                # Decodificar
-                generated = processor.batch_decode(outputs, skip_special_tokens=True)[0]
-                reference = processor.batch_decode([sample['labels']], skip_special_tokens=True)[0]
-                
-                # Calcular métricas
-                bleu4 = calculate_bleu4(reference, generated)
-                rougeL = calculate_rougeL(reference, generated)
-                
-                bleu4_scores.append(bleu4)
-                rougeL_scores.append(rougeL)
-                
-            except Exception as e:
-                continue
-    
-    model.train()
-    
-    return {
-        'bleu4': np.mean(bleu4_scores) if bleu4_scores else 0.0,
-        'rougeL': np.mean(rougeL_scores) if rougeL_scores else 0.0
-    }
+    Entrena una configuración LoRA completa de forma aislada.
 
-# ============================================================================
-# FUNCIÓN DE ENTRENAMIENTO POR CONFIGURACIÓN CON EARLY STOPPING
-# ============================================================================
-
-def train_single_config(config_dict: dict, config_num: int, total_configs: int):
-    """
-    Entrena modelo con una configuración específica usando Early Stopping.
-    
-    OBJETIVO 2 - IMPLEMENTACIÓN:
-    - NO anidar bucles de épocas manualmente
-    - Dejar que Trainer maneje las épocas (num_train_epochs=50)
-    - Early stopping detiene automáticamente si val_loss no mejora en 3 épocas
-    - Registrar mejor modelo y época
+    OBJETIVO 1 — Aislamiento de configuración:
+      Se crea un Trainer NUEVO por config → global_step y epoch se reinician
+      a 0 automáticamente (el Trainer no hereda estado de configs anteriores).
+      Destruir model + trainer + callbacks al finalizar antes de la siguiente config.
     """
     print(f"\n{'='*80}")
-    print(f"🔧 CONFIGURACIÓN {config_num}/{total_configs}: {config_dict['name']}")
-    print(f"   r={config_dict['r']}, alpha={config_dict['alpha']}, lr={TRAINING_CONFIG['lr']:.2e}")
+    print(f"🔧 CONFIG {config_num}/{total_configs}: {config_dict['name']}  "
+          f"r={config_dict['r']}, α={config_dict['alpha']}, lr={TRAINING_CONFIG['lr']:.1e}")
     print(f"{'='*80}\n")
-    
-    # OBJETIVO 2: Limpiar memoria antes de empezar
+
+    # OBJETIVO 1: Limpiar memoria antes de iniciar (aislamiento)
     gc.collect()
     torch.cuda.empty_cache()
-    
-    # Cargar modelo base FRESCO
+
+    # Cargar modelo base FRESCO para esta config (pesos independientes)
     print("   📥 Cargando modelo base...")
     base_model = cargar_modelo_base(
         model_name=config.model.model_name,
         use_quantization=False,
-        device_map="auto"
+        device_map="auto",
     )
-    
-    # Configurar LoRA
-    print(f"   🔧 Aplicando LoRA (r={config_dict['r']}, alpha={config_dict['alpha']})...")
-    lora_config = LoraConfig(
+
+    # Aplicar LoRA con los hiperparámetros de esta config
+    print(f"   🔧 Aplicando LoRA (r={config_dict['r']}, α={config_dict['alpha']})...")
+    lora_cfg = LoraConfig(
         r=config_dict['r'],
         lora_alpha=config_dict['alpha'],
         lora_dropout=0.05,
         bias="none",
         task_type="CAUSAL_LM",
-        target_modules=["q_proj", "v_proj"]
+        target_modules=["q_proj", "v_proj"],
     )
-    
-    model = get_peft_model(base_model, lora_config)
+    model = get_peft_model(base_model, lora_cfg)
     model.print_trainable_parameters()
-    
-    device = next(model.parameters()).device
-    
-    # Configurar directorio temporal
-    temp_output = OUTPUT_DIR / config_dict['name']
-    temp_output.mkdir(exist_ok=True)
-    
-    # OBJETIVO 2 - CONFIGURACIÓN: TrainingArguments con Early Stopping
+
+    # Obtener device para generación en callbacks
+    try:
+        device = next(p for p in model.parameters() if p.requires_grad).device
+    except StopIteration:
+        device = next(model.parameters()).device
+
+    # Directorio de salida de esta config
+    config_output_dir = OUTPUT_DIR / config_dict['name']
+    config_output_dir.mkdir(exist_ok=True)
+
+    # OBJETIVO 3: eval_strategy y save_strategy basados en steps (no épocas)
+    # Esto permite que EarlyStoppingCallback cuente evaluaciones, no épocas.
     training_args = TrainingArguments(
-        output_dir=str(temp_output),
-        
-        # OBJETIVO 2: 50 épocas máximo (early stopping detiene antes)
+        output_dir=str(config_output_dir),
+
+        # OBJETIVO 1: límite fijo de 50 épocas
         num_train_epochs=TRAINING_CONFIG['max_epochs'],
-        
+
         per_device_train_batch_size=TRAINING_CONFIG['batch_size'],
         per_device_eval_batch_size=TRAINING_CONFIG['batch_size'],
+
+        # OBJETIVO 3: batch efectivo = batch_size × gradient_accumulation = 16
         gradient_accumulation_steps=TRAINING_CONFIG['gradient_accumulation'],
+
         learning_rate=TRAINING_CONFIG['lr'],
-        
-        # OBJETIVO 2: Configuración para Early Stopping
-        eval_strategy="epoch",            # Evaluar cada época
-        save_strategy="epoch",            # Guardar cada época
-        load_best_model_at_end=True,      # Cargar mejor modelo al final
-        metric_for_best_model="eval_loss", # Métrica a monitorear
-        greater_is_better=False,          # Menor loss es mejor
-        
+
+        # OBJETIVO 3: Evaluar y guardar cada 50 steps (sincronizados)
+        eval_strategy="steps",
+        eval_steps=TRAINING_CONFIG['eval_steps'],
+        save_strategy="steps",
+        save_steps=TRAINING_CONFIG['eval_steps'],
+
+        # Necesario para que EarlyStoppingCallback pueda restaurar el mejor modelo
+        load_best_model_at_end=True,
+        metric_for_best_model="eval_loss",
+        greater_is_better=False,
+
         logging_steps=50,
-        logging_dir=str(temp_output / "logs"),
-        
+        logging_dir=str(config_output_dir / "logs"),
+
         fp16=True,
         report_to="none",
         remove_unused_columns=False,
         label_names=["labels"],
-        
-        # OBJETIVO 3 - OPTIMIZACIÓN: CPU/GPU eficiente
-        dataloader_num_workers=4,         # ← 4 workers (cv2.setNumThreads(0) evita deadlock)
-        dataloader_pin_memory=True,       # ← Acelera transferencia CPU→GPU
-        
-        save_total_limit=3,               # Solo mantener 3 mejores checkpoints
+
+        # OBJETIVO 1: DataLoader sin deadlocks + eficiente en GPU
+        dataloader_num_workers=4,   # cv2.setNumThreads(0) previene deadlocks
+        dataloader_pin_memory=True,  # acelera transferencia CPU → GPU
+
+        save_total_limit=3,
     )
-    
-    # OBJETIVO 2 - EARLY STOPPING: Configurar callback
-    early_stopping_callback = EarlyStoppingCallback(
-        early_stopping_patience=TRAINING_CONFIG['early_stopping_patience']  # 3 épocas
+
+    # OBJETIVO 4: Callback de auditoría (métricas CSV + audit log + checkpoints)
+    audit_cb = SemifinalAuditCallback(
+        val_dataset=val_dataset,
+        processor=processor,
+        config_name=config_dict['name'],
+        output_dir=OUTPUT_DIR,
+        checkpoints_dir=CHECKPOINTS_DIR,
+        eval_samples=TRAINING_CONFIG['eval_samples'],
+        audit_samples=TRAINING_CONFIG['audit_samples'],
     )
-    
-    # Crear Trainer con Early Stopping
+
+    # OBJETIVO 3: Early stopping basado en nº de evaluaciones (steps)
+    # patience=10 → si en 10 evaluaciones consecutivas val_loss no mejora, para.
+    early_stop_cb = EarlyStoppingCallback(
+        early_stopping_patience=TRAINING_CONFIG['early_stopping_patience']
+    )
+
+    # OBJETIVO 1: Trainer NUEVO → global_step=0, epoch=0 (aislamiento)
     trainer = Trainer(
         model=model,
         args=training_args,
         train_dataset=train_dataset,
         eval_dataset=val_dataset,
         data_collator=data_collator,
-        callbacks=[early_stopping_callback]  # ← OBJETIVO 2: Early stopping
+        callbacks=[early_stop_cb, audit_cb],
     )
-    
-    # OBJETIVO 2 - ENTRENAMIENTO: Una sola llamada a trainer.train()
-    # El Trainer manejará las épocas internamente y detendrá automáticamente
-    # si val_loss no mejora durante 3 épocas consecutivas
-    print(f"\n   🚀 Entrenando hasta {TRAINING_CONFIG['max_epochs']} épocas ")
-    print(f"      (Early stopping: patience={TRAINING_CONFIG['early_stopping_patience']})...\n")
-    
-    # Entrenar (el Trainer maneja épocas y early stopping)
+
+    print(
+        f"\n   🚀 Entrenando (max {TRAINING_CONFIG['max_epochs']} épocas, "
+        f"early stop = {TRAINING_CONFIG['early_stopping_patience']} evals sin mejora)...\n"
+    )
     trainer.train()
-    
-    # OBJETIVO 2 - RESULTADOS: Registrar mejor modelo y época
-    best_epoch = None
-    best_val_loss = None
-    
-    # Extraer información del mejor modelo
-    if hasattr(trainer.state, 'best_metric'):
-        best_val_loss = trainer.state.best_metric
-    
-    # Encontrar en qué época se alcanzó el mejor resultado
-    if hasattr(trainer.state, 'log_history'):
-        eval_logs = [log for log in trainer.state.log_history if 'eval_loss' in log]
-        if eval_logs and best_val_loss is not None:
-            for log in eval_logs:
-                if abs(log.get('eval_loss', float('inf')) - best_val_loss) < 1e-6:
-                    best_epoch = log.get('epoch', None)
-                    break
-    
-    # Calcular métricas NLP en el mejor modelo
-    print(f"\n   📊 Calculando métricas NLP en mejor modelo...")
-    nlp_metrics = evaluate_model_on_val(
-        model, 
-        val_dataset, 
-        processor,
-        device, 
-        num_samples=TRAINING_CONFIG['eval_samples']
-    )
-    
-    # Obtener train_loss final
-    train_logs = [log for log in trainer.state.log_history if 'loss' in log and 'eval_loss' not in log]
-    final_train_loss = train_logs[-1]['loss'] if train_logs else None
-    
-    # Preparar resultados
+
+    # Extraer resultados del log history
+    eval_logs  = [l for l in trainer.state.log_history if 'eval_loss' in l]
+    train_logs = [l for l in trainer.state.log_history if 'loss' in l and 'eval_loss' not in l]
+
+    best_val_loss = trainer.state.best_metric
+    best_step = None
+    if eval_logs and best_val_loss is not None:
+        for l in eval_logs:
+            if abs(l.get('eval_loss', float('inf')) - best_val_loss) < 1e-6:
+                best_step = l.get('step', None)
+                break
+
     result = {
-        'config_name': config_dict['name'],
-        'r': config_dict['r'],
-        'alpha': config_dict['alpha'],
-        'lr': TRAINING_CONFIG['lr'],
-        'total_epochs_trained': trainer.state.epoch if hasattr(trainer.state, 'epoch') else None,
-        'best_epoch': best_epoch,
-        'best_val_loss': best_val_loss,
-        'final_train_loss': final_train_loss,
-        'bleu4': nlp_metrics['bleu4'],
-        'rougeL': nlp_metrics['rougeL'],
-        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        'config_name':        config_dict['name'],
+        'r':                  config_dict['r'],
+        'alpha':              config_dict['alpha'],
+        'lr':                 TRAINING_CONFIG['lr'],
+        'total_steps':        trainer.state.global_step,
+        'best_val_loss':      best_val_loss,
+        'best_step':          best_step,
+        'final_train_loss':   train_logs[-1]['loss'] if train_logs else None,
+        'timestamp':          datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
     }
-    
-    print(f"\n   ✅ Entrenamiento completado:")
-    print(f"      • Total épocas: {result['total_epochs_trained']}")
-    print(f"      • Mejor época: {result['best_epoch']}")
-    print(f"      • Mejor val_loss: {result['best_val_loss']:.4f}")
-    print(f"      • Train loss final: {result['final_train_loss']:.4f}")
-    print(f"      • BLEU-4: {result['bleu4']:.4f}")
-    print(f"      • ROUGE-L: {result['rougeL']:.4f}")
-    
-    # OBJETIVO 2: Limpiar memoria después de entrenar
-    del model
-    del base_model
-    del trainer
+
+    print(f"\n   ✅ Completado | total_steps={result['total_steps']} | "
+          f"best_val_loss={result['best_val_loss']} @ step {result['best_step']}")
+
+    # OBJETIVO 1: Destruir modelo y trainer para aislar la siguiente config
+    del model, base_model, trainer, audit_cb, early_stop_cb
     gc.collect()
     torch.cuda.empty_cache()
-    
+
     return result
 
+
 # ============================================================================
-# BUCLE PRINCIPAL - ENTRENAR 3 CONFIGURACIONES
+# BUCLE PRINCIPAL
 # ============================================================================
 
 def main():
-    """Función principal del entrenamiento semifinal."""
-    
-    all_results = []
-    
-    print("\n🏁 INICIANDO ENTRENAMIENTO SEMIFINAL...\n")
-    
+    """Entrena las 3 configuraciones en secuencia y genera gráficos comparativos."""
+
+    all_results: List[Dict] = []
     total_configs = len(SEMIFINAL_CONFIGS)
-    
-    for i, config_dict in enumerate(SEMIFINAL_CONFIGS, 1):
+
+    print("🏁 INICIANDO ENTRENAMIENTO SEMIFINAL...\n")
+
+    for i, cfg in enumerate(SEMIFINAL_CONFIGS, 1):
         try:
-            result = train_single_config(config_dict, i, total_configs)
+            result = train_single_config(cfg, i, total_configs)
             all_results.append(result)
-            
-            # Guardar resultados intermedios
-            df_intermediate = pd.DataFrame(all_results)
-            df_intermediate.to_csv(OUTPUT_DIR / "intermediate_results.csv", index=False)
-            
+            # Persistir resultados intermedios por si el proceso se interrumpe
+            pd.DataFrame(all_results).to_csv(OUTPUT_DIR / "intermediate_results.csv", index=False)
         except Exception as e:
-            print(f"\n❌ ERROR en {config_dict['name']}: {str(e)}\n")
+            import traceback
+            print(f"\n❌ ERROR en {cfg['name']}: {e}")
+            traceback.print_exc()
             continue
-    
-    # ========================================================================
-    # ANÁLISIS FINAL Y GRÁFICOS
-    # ========================================================================
-    
-    print("\n" + "="*80)
-    print("📊 GENERANDO ANÁLISIS FINAL Y GRÁFICOS")
-    print("="*80 + "\n")
-    
+
     if not all_results:
         print("❌ No hay resultados para analizar.")
         return
-    
-    # Crear DataFrame final
-    df_results = pd.DataFrame(all_results)
-    
-    # Ordenar por mejor val_loss
-    df_results = df_results.sort_values('best_val_loss')
-    
-    # Guardar resultados finales
+
+    # Guardar ranking final ordenado por mejor val_loss
+    df_results = pd.DataFrame(all_results).sort_values('best_val_loss')
     df_results.to_csv(OUTPUT_DIR / "final_results_ranked.csv", index=False)
-    
-    print("🏆 RANKING FINAL (ordenado por best_val_loss):\n")
+    print("\n🏆 RANKING FINAL:\n")
     print(df_results.to_string(index=False))
-    print("\n")
-    
+
     # ========================================================================
-    # GRÁFICOS COMPARATIVOS (como en grid_search)
+    # OBJETIVO 5: GRÁFICOS COMPARATIVOS DESDE LOS 3 CSVs DE HISTORIAL
+    # Cada CSV tiene columnas: Step, Val_Loss, BLEU, ROUGE-L
+    # Se generan 3 PNG de evolución por steps (no barras de resumen).
     # ========================================================================
-    
+
     plots_dir = OUTPUT_DIR / "plots"
     plots_dir.mkdir(exist_ok=True)
-    
-    # Gráfico 1: Comparación de Val Loss
-    plt.figure(figsize=(10, 6))
-    plt.bar(df_results['config_name'], df_results['best_val_loss'], color='steelblue')
-    plt.xlabel('Configuración')
-    plt.ylabel('Best Val Loss')
-    plt.title('Comparación de Mejor Val Loss - Semifinal')
-    plt.xticks(rotation=45)
-    plt.grid(axis='y', alpha=0.3)
-    plt.tight_layout()
-    plt.savefig(plots_dir / "comparison_val_loss.png", dpi=300, bbox_inches='tight')
-    plt.close()
-    
-    # Gráfico 2: Comparación de BLEU-4
-    plt.figure(figsize=(10, 6))
-    plt.bar(df_results['config_name'], df_results['bleu4'], color='coral')
-    plt.xlabel('Configuración')
-    plt.ylabel('BLEU-4')
-    plt.title('Comparación de BLEU-4 - Semifinal')
-    plt.xticks(rotation=45)
-    plt.grid(axis='y', alpha=0.3)
-    plt.tight_layout()
-    plt.savefig(plots_dir / "comparison_bleu4.png", dpi=300, bbox_inches='tight')
-    plt.close()
-    
-    # Gráfico 3: Comparación de ROUGE-L
-    plt.figure(figsize=(10, 6))
-    plt.bar(df_results['config_name'], df_results['rougeL'], color='mediumseagreen')
-    plt.xlabel('Configuración')
-    plt.ylabel('ROUGE-L')
-    plt.title('Comparación de ROUGE-L - Semifinal')
-    plt.xticks(rotation=45)
-    plt.grid(axis='y', alpha=0.3)
-    plt.tight_layout()
-    plt.savefig(plots_dir / "comparison_rougeL.png", dpi=300, bbox_inches='tight')
-    plt.close()
-    
-    # Gráfico 4: Épocas entrenadas
-    plt.figure(figsize=(10, 6))
-    plt.bar(df_results['config_name'], df_results['total_epochs_trained'], color='plum')
-    plt.axhline(y=TRAINING_CONFIG['max_epochs'], color='red', linestyle='--', 
-                label=f'Máximo ({TRAINING_CONFIG["max_epochs"]} épocas)')
-    plt.xlabel('Configuración')
-    plt.ylabel('Épocas Entrenadas')
-    plt.title('Épocas Entrenadas (Early Stopping)')
-    plt.xticks(rotation=45)
-    plt.legend()
-    plt.grid(axis='y', alpha=0.3)
-    plt.tight_layout()
-    plt.savefig(plots_dir / "comparison_epochs.png", dpi=300, bbox_inches='tight')
-    plt.close()
-    
-    # Gráfico 5: Dashboard completo (4 subplots)
-    fig, axes = plt.subplots(2, 2, figsize=(16, 12))
-    
-    # Val Loss
-    axes[0, 0].bar(df_results['config_name'], df_results['best_val_loss'], color='steelblue')
-    axes[0, 0].set_title('Best Val Loss')
-    axes[0, 0].set_ylabel('Val Loss')
-    axes[0, 0].tick_params(axis='x', rotation=45)
-    axes[0, 0].grid(axis='y', alpha=0.3)
-    
-    # BLEU-4
-    axes[0, 1].bar(df_results['config_name'], df_results['bleu4'], color='coral')
-    axes[0, 1].set_title('BLEU-4')
-    axes[0, 1].set_ylabel('Score')
-    axes[0, 1].tick_params(axis='x', rotation=45)
-    axes[0, 1].grid(axis='y', alpha=0.3)
-    
-    # ROUGE-L
-    axes[1, 0].bar(df_results['config_name'], df_results['rougeL'], color='mediumseagreen')
-    axes[1, 0].set_title('ROUGE-L')
-    axes[1, 0].set_ylabel('Score')
-    axes[1, 0].tick_params(axis='x', rotation=45)
-    axes[1, 0].grid(axis='y', alpha=0.3)
-    
-    # Épocas
-    axes[1, 1].bar(df_results['config_name'], df_results['total_epochs_trained'], color='plum')
-    axes[1, 1].axhline(y=TRAINING_CONFIG['max_epochs'], color='red', linestyle='--')
-    axes[1, 1].set_title('Épocas Entrenadas')
-    axes[1, 1].set_ylabel('Épocas')
-    axes[1, 1].tick_params(axis='x', rotation=45)
-    axes[1, 1].grid(axis='y', alpha=0.3)
-    
-    plt.suptitle('Dashboard Semifinal - Comparación de Configuraciones', fontsize=16, y=0.995)
-    plt.tight_layout()
-    plt.savefig(plots_dir / "dashboard_complete.png", dpi=300, bbox_inches='tight')
-    plt.close()
-    
-    print(f"✅ Gráficos guardados en: {plots_dir}\n")
-    
-    # Resumen final
-    print("="*80)
-    print("🎉 ENTRENAMIENTO SEMIFINAL COMPLETADO")
-    print("="*80)
-    print(f"\n📁 Resultados en: {OUTPUT_DIR}")
-    print(f"   • final_results_ranked.csv - Ranking de configuraciones")
-    print(f"   • intermediate_results.csv - Resultados intermedios")
-    print(f"   • plots/ - Gráficos comparativos\n")
-    
-    # Mostrar ganador
-    winner = df_results.iloc[0]
-    print("🏆 MEJOR CONFIGURACIÓN:")
-    print(f"   • {winner['config_name']}: r={winner['r']}, alpha={winner['alpha']}")
-    print(f"   • Best Val Loss: {winner['best_val_loss']:.4f} (época {winner['best_epoch']})")
-    print(f"   • BLEU-4: {winner['bleu4']:.4f}")
-    print(f"   • ROUGE-L: {winner['rougeL']:.4f}")
-    print(f"   • Épocas entrenadas: {winner['total_epochs_trained']}\n")
-    
-    # OBJETIVO 2: Limpieza final de memoria
+
+    # Leer los 3 archivos history_Config_X.csv
+    palette = {'Config_4': 'steelblue', 'Config_5': 'coral', 'Config_6': 'mediumseagreen'}
+    histories: Dict[str, pd.DataFrame] = {}
+    for cfg in SEMIFINAL_CONFIGS:
+        p = OUTPUT_DIR / f"history_{cfg['name']}.csv"
+        if p.exists():
+            histories[cfg['name']] = pd.read_csv(p)
+        else:
+            print(f"⚠️  No se encontró historial para {cfg['name']} en {p}")
+
+    if not histories:
+        print("⚠️  No hay historiales disponibles para graficar.")
+    else:
+        # Gráfico 1: Val Loss por step
+        fig, ax = plt.subplots(figsize=(12, 6))
+        for name, df in histories.items():
+            ax.plot(df['Step'], df['Val_Loss'], label=name,
+                    color=palette.get(name, None), linewidth=2, marker='o', markersize=3)
+        ax.set_xlabel('Step')
+        ax.set_ylabel('Val Loss')
+        ax.set_title('Val Loss por Step — Semifinal')
+        ax.legend()
+        ax.grid(alpha=0.3)
+        plt.tight_layout()
+        plt.savefig(plots_dir / "01_val_loss.png", dpi=300, bbox_inches='tight')
+        plt.close()
+        print("   ✅ 01_val_loss.png")
+
+        # Gráfico 2: BLEU-4 por step
+        fig, ax = plt.subplots(figsize=(12, 6))
+        for name, df in histories.items():
+            ax.plot(df['Step'], df['BLEU'], label=name,
+                    color=palette.get(name, None), linewidth=2, marker='o', markersize=3)
+        ax.set_xlabel('Step')
+        ax.set_ylabel('BLEU-4')
+        ax.set_title('BLEU-4 por Step — Semifinal')
+        ax.legend()
+        ax.grid(alpha=0.3)
+        plt.tight_layout()
+        plt.savefig(plots_dir / "02_bleu.png", dpi=300, bbox_inches='tight')
+        plt.close()
+        print("   ✅ 02_bleu.png")
+
+        # Gráfico 3: ROUGE-L por step
+        fig, ax = plt.subplots(figsize=(12, 6))
+        for name, df in histories.items():
+            ax.plot(df['Step'], df['ROUGE-L'], label=name,
+                    color=palette.get(name, None), linewidth=2, marker='o', markersize=3)
+        ax.set_xlabel('Step')
+        ax.set_ylabel('ROUGE-L')
+        ax.set_title('ROUGE-L por Step — Semifinal')
+        ax.legend()
+        ax.grid(alpha=0.3)
+        plt.tight_layout()
+        plt.savefig(plots_dir / "03_rougeL.png", dpi=300, bbox_inches='tight')
+        plt.close()
+        print("   ✅ 03_rougeL.png")
+
+        print(f"\n✅ Gráficos guardados en: {plots_dir}")
+
+    # Limpieza final
     gc.collect()
     torch.cuda.empty_cache()
-    
-    print("="*80 + "\n")
-    
-    # ========================================================================
-    # AUTO-PAUSAR POD DE RUNPOD (DESACTIVADO)
-    # ========================================================================
-    
-    # print("🛑 Intentando pausar pod de RunPod...")
-    # 
-    # try:
-    #     # Método 1: Usando runpodctl (si está instalado)
-    #     import subprocess
-    #     result = subprocess.run(['runpodctl', 'stop', 'pod'], 
-    #                           capture_output=True, text=True, timeout=10)
-    #     if result.returncode == 0:
-    #         print("✅ Pod pausado exitosamente con runpodctl")
-    #     else:
-    #         # Método 2: Usando variable de entorno RUNPOD_POD_ID y API
-    #         import requests
-    #         pod_id = os.environ.get('RUNPOD_POD_ID')
-    #         api_key = os.environ.get('RUNPOD_API_KEY')
-    #         
-    #         if pod_id and api_key:
-    #             url = f"https://api.runpod.io/graphql"
-    #             headers = {"Content-Type": "application/json"}
-    #             query = f"""
-    #             mutation {{
-    #               podStop(input: {{podId: "{pod_id}"}}) {{
-    #                 id
-    #                 desiredStatus
-    #               }}
-    #             }}
-    #             """
-    #             response = requests.post(url, 
-    #                                    json={"query": query},
-    #                                    headers={"Authorization": api_key})
-    #             if response.status_code == 200:
-    #                 print("✅ Pod pausado exitosamente con API de RunPod")
-    #             else:
-    #                 print(f"⚠️  No se pudo pausar automáticamente. Pausa manualmente desde RunPod UI.")
-    #         else:
-    #             print("⚠️  Variables RUNPOD_POD_ID o RUNPOD_API_KEY no encontradas.")
-    #             print("💡 Pausa manualmente el pod desde: https://www.runpod.io/console/pods")
-    # except Exception as e:
-    #     print(f"⚠️  No se pudo pausar automáticamente: {e}")
-    #     print("💡 Pausa manualmente el pod desde: https://www.runpod.io/console/pods")
-    
-    print("\n✅ Entrenamiento semifinal completado. Pod permanecerá activo.\n")
+
+    # Mostrar ganador
+    winner = df_results.iloc[0]
+    print("\n" + "="*80)
+    print("🎉 ENTRENAMIENTO SEMIFINAL COMPLETADO")
+    print("="*80)
+    print(f"\n🏆 MEJOR CONFIG: {winner['config_name']}  "
+          f"r={winner['r']}, α={winner['alpha']}")
+    print(f"   best_val_loss={winner['best_val_loss']:.4f} @ step {winner['best_step']}")
+    print(f"\n📁 Outputs:")
+    print(f"   {OUTPUT_DIR}/final_results_ranked.csv")
+    print(f"   {OUTPUT_DIR}/history_Config_X.csv  (una por config)")
+    print(f"   {OUTPUT_DIR}/audit_Config_X.txt    (una por config)")
+    print(f"   {CHECKPOINTS_DIR}/best_model_Config_X/")
+    print(f"   {CHECKPOINTS_DIR}/latest_model_Config_X/")
+    print(f"   {plots_dir}/01_val_loss.png  02_bleu.png  03_rougeL.png\n")
+
 
 # ============================================================================
 # EJECUTAR

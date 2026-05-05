@@ -262,13 +262,10 @@ class MimicCXRDataset(Dataset):
                 )
                 imagen_pil = crear_imagen_placeholder(self.image_size)
         
-        # OBJETIVO 1 - MODIFICACIÓN: Formatear prompt dinámicamente con contexto de vista
-        # Estructura exacta: "[Context: {vista} view] Question: ... Answer: "
-        prompt_text = (
-            f"[Context: {vista_mapeada} view] "
-            f"Question: Describe the clinical findings, anatomical structures, "
-            f"and abnormalities visible in this chest radiograph. Answer: "
-        )
+        # OBJETIVO 2: Prompt dinámico — concatena contexto de vista con el prompt
+        # central de config.inference.default_prompt, evitando hardcodear el texto.
+        # Estructura: "[Context: {vista} view] {default_prompt}"
+        prompt_text = f"[Context: {vista_mapeada} view] {config.inference.default_prompt}"
         
         # Concatenar prompt + reporte para el formato VQA
         full_text = prompt_text + report_text
