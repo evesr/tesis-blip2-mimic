@@ -50,10 +50,15 @@ checkpoints/
 *.bin
 *.safetensors
 
-# Datos (descomentar si no quieres versionar datos)
-*.csv
+# Datos grandes (imágenes y splits no se versionan)
+imagenes_10_porciento/
 imagenes_1_porciento/
 files/
+
+# Archivos de datos grandes
+*.gz
+*.zip
+~$*.xlsx
 
 # Resultados de evaluación
 evaluacion/

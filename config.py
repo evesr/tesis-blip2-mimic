@@ -28,11 +28,11 @@ class PathConfig:
         output_dir: Directorio para guardar modelos y checkpoints
         checkpoints_dir: Directorio específico para checkpoints durante entrenamiento
     """
-    base_dir: Path = Path("/workspace/tesis-blip2-mimic/Tesis_blip2_local")
-    images_dir: Path = base_dir / "imagenes_1_porciento"
-    train_csv: Path = base_dir / "train_split_limpio.csv"
-    val_csv: Path = base_dir / "val_split_limpio.csv"
-    test_csv: Path = base_dir / "test_split_limpio.csv"
+    base_dir: Path = Path("/workspace/tesis-blip2-mimic")
+    images_dir: Path = base_dir / "imagenes_10_porciento"
+    train_csv: Path = base_dir / "train_split_10pct_limpio.csv"
+    val_csv: Path = base_dir / "val_split_10pct_limpio.csv"
+    test_csv: Path = base_dir / "test_split_10pct_limpio.csv"
     output_dir: Path = base_dir / "modelo_entrenado"
     checkpoints_dir: Path = output_dir / "checkpoints"
     
