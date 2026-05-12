@@ -434,7 +434,16 @@ def train_single_config(config_dict: dict, config_num: int, total_configs: int) 
         logging_steps=100,
         logging_dir=str(config_output_dir / "logs"),
 
-        fp16=True,
+        # bf16 en lugar de fp16: RTX 3090 (Ampere) tiene soporte nativo bfloat16.
+        # bf16=True desactiva GradScaler -> elimina el crash de unscale fp16.
+        fp16=False,
+        bf16=True,
+
+        # gradient_checkpointing: recomputa activaciones en el backward
+        # en lugar de mantenerlas en VRAM. Ahorra ~60% de memoria de activaciones
+        # a cambio de ~20% mas de tiempo de computo.
+        gradient_checkpointing=True,
+
         report_to="none",
         remove_unused_columns=False,
         label_names=["labels"],

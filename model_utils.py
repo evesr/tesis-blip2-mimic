@@ -136,14 +136,17 @@ def cargar_modelo_base(
         )
     
     # Cargar modelo
-    # torch_dtype: float16 cuando se usa cuantizacion INT8 (bitsandbytes lo requiere),
-    # float32 en caso contrario para que fp16 AMP del Trainer funcione correctamente
-    # (el GradScaler necesita params en float32 para hacer unscale de gradientes).
+    # torch_dtype: bfloat16 en todos los casos.
+    # - Mismo rango de exponente que float32 -> sin overflow ni underflow.
+    # - Misma huella de memoria que float16 (2 bytes por parametro).
+    # - RTX 3090 (Ampere) tiene soporte nativo de bfloat16.
+    # - Con bf16=True en el Trainer no se instancia GradScaler,
+    #   eliminando el crash 'Attempting to unscale FP16 gradients'.
     model = Blip2ForConditionalGeneration.from_pretrained(
         model_name,
         quantization_config=quantization_config,
         device_map=device_map if device_map else "auto",
-        torch_dtype=torch.float16 if use_quantization else torch.float32,
+        torch_dtype=torch.bfloat16,
         cache_dir=cache_dir
     )
     
