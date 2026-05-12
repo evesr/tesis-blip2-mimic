@@ -1,18 +1,20 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 """
-Monitor de Entrenamiento Semifinal en Tiempo Real
-==================================================
-Lee los archivos generados por train_semifinal.py y muestra el estado actual.
+Monitor Gran Final -- BLIP-2 + LoRA
+=====================================
+Lee los archivos generados por train_semifinal.py y muestra el estado.
 
-Archivos leídos:
-  semifinal_results/history_Config_X.csv   → Step, Val_Loss, BLEU, ROUGE-L
-  semifinal_results/audit_Config_X.txt     → últimos reportes de muestra
-  semifinal_results/intermediate_results.csv → resumen de configs terminadas
-  semifinal_results/semifinal.log          → últimas líneas del log general
+Archivos leidos:
+  final_results/history_final_Config_A.csv  -> Step, Val_Loss, BLEU-4, ROUGE-L
+  final_results/history_final_Config_B.csv
+  final_results/audit_final_Config_A.txt    -> ultimos reportes generados
+  final_results/audit_final_Config_B.txt
+  final_results/intermediate_results_final.csv
+  final_results/gran_final.log
 
 Uso:
-    python monitor_semifinal.py                  # una sola vez
-    watch -n 15 python monitor_semifinal.py      # actualización automática
+    python monitor_semifinal.py              # snapshot
+    watch -n 30 python monitor_semifinal.py  # refresco automatico
 
 Autor: Evelyn Silva Rozas
 Fecha: Mayo 2026
@@ -24,149 +26,181 @@ from datetime import datetime
 
 import pandas as pd
 
+RESULTS_DIR  = Path("final_results")
+CONFIG_NAMES = ["Config_A", "Config_B"]
+CONFIG_META  = {
+    "Config_A": {"r": 16, "alpha": 32},
+    "Config_B": {"r": 32, "alpha": 64},
+}
+LOG_FILE   = RESULTS_DIR / "gran_final.log"
+PID_FILE   = RESULTS_DIR / "gran_final.pid"
+PATIENCE   = 10
+LOG_TAIL   = 8
+AUDIT_SHOW = 2
 
-RESULTS_DIR   = Path("semifinal_results")
-CONFIG_NAMES  = ["Config_4", "Config_5", "Config_6"]
-LOG_TAIL_LINES = 6       # cuántas líneas del log general mostrar
-AUDIT_TAIL    = 1        # cuántas entradas del audit mostrar por config
-PATIENCE      = 10       # patience configurada en train_semifinal.py
+
+def _sparkline(values):
+    """Mini grafico ASCII de tendencia."""
+    if len(values) < 2:
+        return "-" * len(values)
+    blocks = "._-~=^#@"
+    vmin, vmax = min(values), max(values)
+    rng = vmax - vmin + 1e-9
+    return "".join(blocks[int((v - vmin) / rng * 7)] for v in values)
 
 
-def _bar(value: float, max_val: float = 1.0, width: int = 20) -> str:
-    """Barra ASCII proporcional."""
-    filled = int(round(value / max_val * width)) if max_val > 0 else 0
-    return "█" * filled + "░" * (width - filled)
+def _pid_status():
+    if not PID_FILE.exists():
+        return "desconocido (sin PID file)"
+    pid = PID_FILE.read_text().strip()
+    try:
+        Path(f"/proc/{pid}").stat()
+        return f"CORRIENDO (PID {pid})"
+    except FileNotFoundError:
+        return f"DETENIDO (PID {pid} ya no existe)"
 
 
-def monitor_semifinal():
-    print("\n" + "=" * 80)
-    print(f"📊  MONITOR SEMIFINAL — BLIP2 + LoRA   [{datetime.now().strftime('%H:%M:%S')}]")
-    print("=" * 80)
+def monitor():
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    sep = "=" * 78
+    line = "-" * 78
+    print()
+    print(sep)
+    print(f"  MONITOR GRAN FINAL -- BLIP-2 + LoRA      [{now}]")
+    print(sep)
+    print(f"  Proceso : {_pid_status()}")
 
     if not RESULTS_DIR.exists():
-        print("\n⏳  semifinal_results/ aún no existe. El entrenamiento no ha iniciado.\n")
+        print()
+        print("  Sin datos aun. Lanza el entrenamiento con:")
+        print("    bash run_semifinal_tmux.sh")
+        print(sep)
+        print()
         return
 
-    # ── 1. Historial por config ───────────────────────────────────────────────
-    any_history = False
+    # -- 1. Historial por config ----------------------------------------------
+    any_data = False
     for name in CONFIG_NAMES:
-        hist_path = RESULTS_DIR / f"history_{name}.csv"
+        meta = CONFIG_META[name]
+        hist_path = RESULTS_DIR / f"history_final_{name}.csv"
         if not hist_path.exists():
+            print()
+            print(f"  * {name} (r={meta['r']}, alpha={meta['alpha']})"
+                  "  -- esperando primera evaluacion (step 500)...")
             continue
-        any_history = True
 
         df = pd.read_csv(hist_path)
         if df.empty:
-            print(f"\n⏳  {name}: historia vacía (primer eval en curso…)")
+            print(f"  * {name} -- historia vacia...")
             continue
 
+        any_data   = True
         latest     = df.iloc[-1]
-        best_row   = df.loc[df["Val_Loss"].idxmin()]
+        best_idx   = df["Val_Loss"].idxmin()
+        best       = df.loc[best_idx]
         n_evals    = len(df)
-        evals_since = n_evals - 1 - df["Val_Loss"].idxmin()   # evals sin mejora
+        evals_since = n_evals - 1 - best_idx
 
-        # Estado del early stopping
         if evals_since == 0:
-            es_status = "✅ mejorando"
+            es_status = "mejorando"
         elif evals_since >= PATIENCE:
-            es_status = f"🛑 detenido ({evals_since}/{PATIENCE})"
+            es_status = f"EARLY STOP ({evals_since}/{PATIENCE})"
         else:
-            es_status = f"⏳ {evals_since}/{PATIENCE} sin mejora"
+            es_status = f"{evals_since}/{PATIENCE} sin mejora"
 
-        print(f"\n┌─ {name}  (r={_config_r(name)}, α={_config_a(name)}) ── {n_evals} evals ── {es_status}")
-        print(f"│  Step actual : {int(latest['Step']):<8}  "
-              f"Val_Loss={latest['Val_Loss']:.4f}  "
-              f"BLEU={latest['BLEU']:.4f}  "
-              f"ROUGE-L={latest['ROUGE-L']:.4f}")
-        print(f"│  Mejor step  : {int(best_row['Step']):<8}  "
-              f"Val_Loss={best_row['Val_Loss']:.4f}  "
-              f"BLEU={best_row['BLEU']:.4f}  "
-              f"ROUGE-L={best_row['ROUGE-L']:.4f}")
+        print()
+        print(f"  +-- {name}  (r={meta['r']}, alpha={meta['alpha']})"
+              f"  {n_evals} evals  [{es_status}]")
+        print(f"  |  Ahora   step {int(latest['Step']):>7}"
+              f"  val_loss={latest['Val_Loss']:.4f}"
+              f"  BLEU-4={latest['BLEU-4']:.4f}"
+              f"  ROUGE-L={latest['ROUGE-L']:.4f}")
+        print(f"  |  Mejor   step {int(best['Step']):>7}"
+              f"  val_loss={best['Val_Loss']:.4f}"
+              f"  BLEU-4={best['BLEU-4']:.4f}"
+              f"  ROUGE-L={best['ROUGE-L']:.4f}")
 
-        # Mini curva de val_loss (últimos 15 puntos)
-        recent = df["Val_Loss"].tail(15).tolist()
+        recent = df["Val_Loss"].tail(20).tolist()
         if len(recent) > 1:
-            vmin, vmax = min(recent), max(recent)
-            sparkline = "".join(
-                "▁▂▃▄▅▆▇█"[int((v - vmin) / (vmax - vmin + 1e-9) * 7)]
-                for v in recent
-            )
-            print(f"│  Loss trend  : {sparkline}  (últimos {len(recent)} evals)")
-        print("└" + "─" * 78)
+            spark = _sparkline(recent)
+            trend = "bajando" if recent[-1] < recent[0] else "subiendo"
+            print(f"  |  Tendencia [{spark}] {trend}  (ultimos {len(recent)} evals)")
+        print(f"  +{line[1:]}")
 
-    if not any_history:
-        print("\n⏳  Esperando primera evaluación (step 50)…\n")
+    if not any_data:
+        print()
+        print("  Sin evals aun. Espera ~500 steps para el primer checkpoint.")
 
-    # ── 2. Configuraciones terminadas ─────────────────────────────────────────
-    inter_path = RESULTS_DIR / "intermediate_results.csv"
+    # -- 2. Configs terminadas ------------------------------------------------
+    inter_path = RESULTS_DIR / "intermediate_results_final.csv"
     if inter_path.exists():
-        df_inter = pd.read_csv(inter_path)
-        if not df_inter.empty:
-            print(f"\n{'─'*80}")
-            print(f"✅  CONFIGS TERMINADAS: {len(df_inter)}/3")
-            display_cols = [c for c in
-                            ["config_name", "r", "alpha", "total_steps",
-                             "best_val_loss", "best_step", "final_train_loss", "timestamp"]
-                            if c in df_inter.columns]
-            print(df_inter[display_cols].to_string(index=False))
+        df_i = pd.read_csv(inter_path)
+        if not df_i.empty:
+            print()
+            print(line)
+            print(f"  CONFIGS TERMINADAS: {len(df_i)}/{len(CONFIG_NAMES)}")
+            cols = [c for c in
+                    ["config_name", "r", "alpha", "total_steps",
+                     "best_val_loss", "best_step", "final_train_loss", "timestamp"]
+                    if c in df_i.columns]
+            print(df_i[cols].to_string(index=False))
 
-    # ── 3. Última entrada del audit por config ────────────────────────────────
-    print(f"\n{'─'*80}")
-    print("📋  ÚLTIMAS ENTRADAS AUDIT (reporte generado vs real):")
+    # -- 3. Audit: ultimas entradas -------------------------------------------
+    print()
+    print(line)
+    print("  ULTIMOS REPORTES GENERADOS (audit):")
     for name in CONFIG_NAMES:
-        audit_path = RESULTS_DIR / f"audit_{name}.txt"
+        audit_path = RESULTS_DIR / f"audit_final_{name}.txt"
         if not audit_path.exists():
             continue
-        # Leer las últimas líneas no vacías
-        lines = [l.rstrip() for l in audit_path.read_text().splitlines()
-                 if l.strip() and not l.startswith("#") and not l.startswith("─")]
-        if lines:
-            print(f"\n  [{name}]")
-            for line in lines[-AUDIT_TAIL:]:
-                # Truncar líneas muy largas para que quepan en el monitor
-                print(f"    {line[:120]}")
+        raw = audit_path.read_text(errors="replace").splitlines()
+        lines = [l.rstrip() for l in raw
+                 if l.strip() and not l.startswith("#") and not l.startswith("-")]
+        if not lines:
+            continue
+        print(f"  [{name}]")
+        for l in lines[-AUDIT_SHOW:]:
+            print(f"    {l[:160]}")
 
-    # ── 4. Últimas líneas del log general ─────────────────────────────────────
-    log_path = RESULTS_DIR / "semifinal.log"
-    if log_path.exists():
-        print(f"\n{'─'*80}")
-        print(f"📄  ÚLTIMAS {LOG_TAIL_LINES} LÍNEAS DE semifinal.log:")
-        all_lines = log_path.read_text(errors="replace").splitlines()
-        for line in all_lines[-LOG_TAIL_LINES:]:
-            print(f"   {line}")
+    # -- 4. Ultimas lineas del log --------------------------------------------
+    if LOG_FILE.exists():
+        print()
+        print(line)
+        print(f"  ULTIMAS {LOG_TAIL} LINEAS DE gran_final.log:")
+        all_lines = LOG_FILE.read_text(errors="replace").splitlines()
+        for l in all_lines[-LOG_TAIL:]:
+            print(f"    {l}")
 
-    # ── 5. Gráficos disponibles ────────────────────────────────────────────────
+    # -- 5. Graficos disponibles ----------------------------------------------
     plots_dir = RESULTS_DIR / "plots"
     if plots_dir.exists():
         pngs = sorted(plots_dir.glob("*.png"))
         if pngs:
-            print(f"\n{'─'*80}")
-            print("📈  GRÁFICOS DISPONIBLES:")
+            print()
+            print(line)
+            print("  GRAFICOS DISPONIBLES:")
             for p in pngs:
-                print(f"   {p.name}")
+                print(f"    {p}")
 
-    print("\n" + "=" * 80)
-    print("💡  watch -n 15 python monitor_semifinal.py  │  tail -f semifinal_results/semifinal.log")
-    print("=" * 80 + "\n")
-
-
-def _config_r(name: str) -> int:
-    return {"Config_4": 16, "Config_5": 16, "Config_6": 32}.get(name, "?")
-
-
-def _config_a(name: str) -> int:
-    return {"Config_4": 32, "Config_5": 16, "Config_6": 64}.get(name, "?")
+    print()
+    print(sep)
+    print("  Comandos utiles:")
+    print("    tail -f final_results/gran_final.log      # log en tiempo real")
+    print("    watch -n 30 python monitor_semifinal.py   # refresco auto 30s")
+    print("    watch -n 3 nvidia-smi                     # estado GPU")
+    print("    kill $(cat final_results/gran_final.pid)  # detener entrenamiento")
+    print(sep)
+    print()
 
 
 if __name__ == "__main__":
     try:
-        monitor_semifinal()
+        monitor()
     except KeyboardInterrupt:
-        print("\n👋 Monitor detenido.\n")
+        print("  Monitor detenido.")
         sys.exit(0)
     except Exception as e:
-        print(f"\n❌ Error en monitor: {e}\n")
+        print(f"  Error en monitor: {e}")
         import traceback
         traceback.print_exc()
         sys.exit(1)
-

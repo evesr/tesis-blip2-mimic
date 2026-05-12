@@ -1,130 +1,145 @@
 #!/bin/bash
 ###############################################################################
-# Script para ejecutar Entrenamiento Semifinal con nohup (persistente)
+# Lanzador Gran Final — BLIP-2 + LoRA  (nohup, persistente)
 ###############################################################################
-#
-# DESCRIPCIÓN:
-#   Lanza train_semifinal.py en segundo plano con nohup.
-#   El proceso sigue corriendo aunque cierres VS Code o la terminal.
 #
 # USO:
 #   bash run_semifinal_tmux.sh
 #
-# MONITOREO (en cualquier terminal):
-#   python monitor_semifinal.py                  # una sola vez
-#   watch -n 15 python monitor_semifinal.py      # actualización automática
-#   tail -f semifinal_results/semifinal.log      # log en tiempo real
-#   watch -n 2 nvidia-smi                        # GPU
+# MONITOREO (en cualquier terminal nueva):
+#   python monitor_semifinal.py          # snapshot de métricas
+#   watch -n 30 python monitor_semifinal.py   # refresco automático
+#   tail -f final_results/gran_final.log      # log crudo en tiempo real
+#   watch -n 3 nvidia-smi                     # GPU
 #
-# CONTROLAR EL PROCESO:
-#   cat semifinal_results/semifinal.pid          # ver PID
-#   kill $(cat semifinal_results/semifinal.pid)  # detener
+# CONTROL:
+#   cat  final_results/gran_final.pid         # ver PID
+#   kill $(cat final_results/gran_final.pid)  # detener limpiamente
 #
 # Autor: Evelyn Silva Rozas
 # Fecha: Mayo 2026
 ###############################################################################
 
-WORKDIR="/workspace/tesis-blip2-mimic/Tesis_blip2_local"
-SCRIPT_PATH="$WORKDIR/train_semifinal.py"
-RESULTS_DIR="$WORKDIR/semifinal_results"
-LOG_FILE="$RESULTS_DIR/semifinal.log"
-PID_FILE="$RESULTS_DIR/semifinal.pid"
+WORKDIR="/workspace/tesis-blip2-mimic"
+SCRIPT="$WORKDIR/train_semifinal.py"
+RESULTS_DIR="$WORKDIR/final_results"
+LOG_FILE="$RESULTS_DIR/gran_final.log"
+PID_FILE="$RESULTS_DIR/gran_final.pid"
 
-echo "================================================================================"
-echo "🚀 ENTRENAMIENTO SEMIFINAL — nohup"
-echo "================================================================================"
+echo "======================================================================"
+echo "  GRAN FINAL — BLIP-2 + LoRA  (nohup)"
+echo "======================================================================"
 echo ""
 
-# ─── Verificaciones previas ───────────────────────────────────────────────────
+# ── previas Verificaciones ─────────────
+if [ ! -f "$SCRIPT" ]; then
+    echo "ERROR: no se encontró $SCRIPT"
+    exit 1
+fi
 
-if [ ! -f "$SCRIPT_PATH" ]; then
-    echo "❌ No se encontró: $SCRIPT_PATH"
+if [ ! -f "$WORKDIR/train_split_10pct_limpio.csv" ]; then
+    echo "ERROR: no se encontró train_split_10pct_limpio.csv"
+    echo "  Asegúrate de tener los splits del 10% en $WORKDIR"
     exit 1
 fi
 
 mkdir -p "$RESULTS_DIR"
 
-# ─── Verificar si ya hay un proceso corriendo ─────────────────────────────────
-
+ Verificar si ya hay un proceso corriendo ───────# ─
 if [ -f "$PID_FILE" ]; then
     OLD_PID=$(cat "$PID_FILE")
     if kill -0 "$OLD_PID" 2>/dev/null; then
-        echo "⚠️  Ya hay un entrenamiento corriendo (PID=$OLD_PID)"
+        echo "AVISO: ya hay un entrenamiento corriendo (PID=$OLD_PID)"
         echo ""
-        read -p "   [K] Matar y relanzar  [C] Cancelar  → " choice
+        read -p "  [K] Matar y relanzar  [C] Cancelar → " choice
         case "$choice" in
           k|K)
-            echo "💀 Deteniendo proceso $OLD_PID..."
+            echo "Deteniendo PID $OLD_PID..."
             kill "$OLD_PID" 2>/dev/null
-            sleep 2
+            sleep 3
             ;;
           *)
-            echo "❌ Cancelado. Monitorea con: tail -f $LOG_FILE"
+            echo "Cancelado. Monitorea con:"
+            echo "  tail -f $LOG_FILE"
             exit 0
             ;;
         esac
     else
-        echo "ℹ️  PID $OLD_PID encontrado pero ya no está corriendo. Relanzando..."
+        echo "INFO: PID $OLD_PID ya no está activo. Relanzando..."
         rm -f "$PID_FILE"
     fi
 fi
 
-# ─── Lanzar con nohup ─────────────────────────────────────────────────────────
-
-echo "✅ Lanzando train_semifinal.py con nohup..."
-echo "   Log → $LOG_FILE"
-echo ""
-
+# ── Lanzar con nohup ───────────────────────────
 cd "$WORKDIR"
 
-# PYTHONUNBUFFERED=1 garantiza que print() se escriba al log inmediatamente.
-# nohup desvincula el proceso de la terminal actual.
-# & lo manda al fondo y guarda el PID.
-nohup env PYTHONUNBUFFERED=1 python -u train_semifinal.py > "$LOG_FILE" 2>&1 &
-TRAIN_PID=$!
+echo "Lanzando train_semifinal.py..."
+echo "  Log → $LOG_FILE"
+echo ""
 
-# Guardar PID para poder matar el proceso después si se necesita
+# PYTHONUNBUFFERED=1 → los print() llegan al log sin buffering
+# python -u          → fuerza modo unbuffered
+# nohup + &          → desvincula de la terminal, manda al fondo
+nohup env PYTHONUNBUFFERED=1 python -u "$SCRIPT" > "$LOG_FILE" 2>&1 &
+TRAIN_PID=$!
 echo "$TRAIN_PID" > "$PID_FILE"
 
-# Esperar un segundo y verificar que el proceso arrancó correctamente
-sleep 2
+# Esperar y confirmar que arrancó
+sleep 3
 if ! kill -0 "$TRAIN_PID" 2>/dev/null; then
-    echo "❌ El proceso terminó inesperadamente. Revisa el log:"
-    echo "   tail -20 $LOG_FILE"
+    echo "ERROR: el proceso terminó inesperadamente. Últimas líneas del log:"
+"    echo "──────────────────
+    tail -20 "$LOG_FILE"
+"    echo "───────────────────────────────────────
     exit 1
 fi
 
-echo "================================================================================"
-echo "✅ ENTRENAMIENTO CORRIENDO EN SEGUNDO PLANO"
-echo "================================================================================"
+echo "======================================================================"
+echo "  ENTRENAMIENTO CORRIENDO EN SEGUNDO PLANO"
+echo "======================================================================"
 echo ""
-echo "   PID: $TRAIN_PID  (guardado en $PID_FILE)"
+echo "  PID : $TRAIN_PID  (guardado en $PID_FILE)"
+echo "  Log : $LOG_FILE"
 echo ""
-echo "📋 Comandos de monitoreo:"
+echo "COMANDOS DE MONITOREO:"
 echo ""
-echo "   Log en tiempo real:       tail -f $LOG_FILE"
-echo "   Monitor con métricas:     watch -n 15 python monitor_semifinal.py"
-echo "   Estado GPU:               watch -n 2 nvidia-smi"
-echo "   Ver PID:                  cat $PID_FILE"
-echo "   Detener entrenamiento:    kill \$(cat $PID_FILE)"
+echo "  # Log crudo en tiempo real:"
+echo "  tail -f $LOG_FILE"
 echo ""
-echo "📁 Archivos generados en semifinal_results/:"
-echo "   semifinal.log             → salida completa"
-echo "   history_Config_X.csv      → Step, Val_Loss, BLEU, ROUGE-L"
-echo "   audit_Config_X.txt        → reportes de muestra por eval"
-echo "   checkpoints/best_model_*  → mejores pesos por config"
-echo "   plots/01_val_loss.png     → gráficos al finalizar"
+echo "  # Monitor de mtricas (snapshot):"
+echo "  python monitor_semifinal.py"
 echo ""
-echo "⏱️  Tiempo estimado: 6-18 h (early stopping patience=10 evals)"
-echo "================================================================================"
+echo "  # Monitor con refresco automático cada 30s:"
+echo "  watch -n 30 python monitor_semifinal.py"
 echo ""
-echo "💡 Puedes cerrar esta terminal. El proceso seguirá corriendo."
+echo "  # Estado GPU:"
+echo "  watch -n 3 nvidia-smi"
+echo ""
+echo "  # Detener entrenamiento:"
+echo "  kill \$(cat $PID_FILE)"
+echo ""
+echo "ARCHIVOS GENERADOS EN $RESULTS_DIR/:"
+echo "  gran_final.log                → salida completa"
+echo "  history_final_Config_A.csv    → Step, Val_Loss, BLEU-4, ROUGE-L"
+echo "  history_final_Config_B.csv"
+echo "  audit_final_Config_A.txt      → 10 reportes por eval (sin truncar)"
+echo "  audit_final_Config_B.txt"
+echo "  checkpoints/best_model_Config_A/  → mejores pesos"
+echo "  checkpoints/best_model_Config_B/"
+echo "  plots/01_val_loss.png         → gráficos al finalizar"
+echo "  plots/02_bleu4.png"
+echo "  plots/03_rougeL.png"
+echo "  final_results_ranked.csv      → ranking final"
+echo ""
+echo "Tiempo estimado: 12-24 h (early stopping patience=10 × 500 steps)"
+echo "======================================================================"
 echo ""
 
-# Mostrar las primeras líneas del log para confirmar que arrancó
-echo "📄 Primeras líneas del log:"
-echo "─────────────────────────────────────────"
-sleep 3
-head -20 "$LOG_FILE" 2>/dev/null || echo "   (log aún vacío, espera unos segundos)"
-echo "─────────────────────────────────────────"
+# Mostrar primeras líneas del log para confirmar arranque
+echo "Primeras leas del log:"
+"echo "────────────────────────────
+sleep 4
+head -25 "$LOG_FILE" 2>/dev/null || echo "  (log aún vacío, espera unos segundos)"
+"echo "─────────────────────────────────────
 echo ""
+echo "Puedes cerrar esta terminal. El proceso continuará en segundo plano."
