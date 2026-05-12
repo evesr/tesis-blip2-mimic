@@ -136,11 +136,14 @@ def cargar_modelo_base(
         )
     
     # Cargar modelo
+    # torch_dtype: float16 cuando se usa cuantizacion INT8 (bitsandbytes lo requiere),
+    # float32 en caso contrario para que fp16 AMP del Trainer funcione correctamente
+    # (el GradScaler necesita params en float32 para hacer unscale de gradientes).
     model = Blip2ForConditionalGeneration.from_pretrained(
         model_name,
         quantization_config=quantization_config,
         device_map=device_map if device_map else "auto",
-        torch_dtype=torch.float16,  # Siempre float16 para eficiencia
+        torch_dtype=torch.float16 if use_quantization else torch.float32,
         cache_dir=cache_dir
     )
     

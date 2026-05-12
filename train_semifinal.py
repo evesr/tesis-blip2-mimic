@@ -302,7 +302,9 @@ class FinalAuditCallback(TrainerCallback):
         # --- OBJETIVO 4: Guardar checkpoint SOLO si val_loss mejoro ---
         if val_loss is not None and val_loss < self.best_val_loss:
             self.best_val_loss = val_loss
-            model.save_pretrained(str(self.best_model_dir))
+            # Guardar solo los adaptadores LoRA del language_model
+            lm = getattr(model, 'language_model', model)
+            lm.save_pretrained(str(self.best_model_dir))
             print(f"   Nuevo mejor modelo guardado (val_loss={val_loss:.4f}) -> {self.best_model_dir}")
 
         # --- OBJETIVO 5: Escribir audit log (sin truncar) ---
@@ -392,8 +394,12 @@ def train_single_config(config_dict: dict, config_num: int, total_configs: int) 
         task_type="CAUSAL_LM",
         target_modules=["q_proj", "v_proj"],
     )
-    model = get_peft_model(base_model, lora_cfg)
-    model.print_trainable_parameters()
+    # Aplicar LoRA SOLO al language_model interno (OPT), no al wrapper BLIP-2.
+    # En PEFT >= 0.10, get_peft_model sobre el modelo completo BLIP-2 intenta
+    # pasar inputs_embeds al forward() de nivel superior, que no lo acepta.
+    base_model.language_model = get_peft_model(base_model.language_model, lora_cfg)
+    model = base_model
+    model.language_model.print_trainable_parameters()
 
     # Directorio de salida especifico de esta config
     config_output_dir = OUTPUT_DIR / config_dict['name']
