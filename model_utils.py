@@ -375,7 +375,7 @@ def cargar_modelo_entrenado(
     
     # 1. Cargar procesador
     logger.info("   - Cargando procesador...")
-    processor = Blip2Processor.from_pretrained(model_dir)
+    processor = Blip2Processor.from_pretrained(model_name)
     
     # 2. Cargar modelo base
     logger.info("   - Cargando modelo base...")

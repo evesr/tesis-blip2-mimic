@@ -6,10 +6,13 @@
 torch>=2.0.0
 torchvision>=0.15.0
 
-# Hugging Face ecosystem
-transformers>=4.30.0
+# Hugging Face ecosystem — versiones pineadas (probadas mayo 2026)
+# NOTA: peft>=0.10 rompe get_peft_model sobre Blip2ForConditionalGeneration completo
+# porque inyecta inputs_embeds que el forward de BLIP-2 no acepta.
+# Solución adoptada: LoRA se aplica a base_model.language_model (OPT interno).
+transformers==4.46.3
 accelerate>=0.20.0
-peft>=0.4.0
+peft==0.13.2
 datasets>=2.12.0
 
 # Quantization

@@ -108,13 +108,14 @@ CONFIGS = [
     },
 ]
 
-# Parámetros de generación ESTRICTOS
+# Parámetros de generación ESTRICTOS Y BLINDADOS
 GEN_PARAMS = dict(
-    num_beams          = 5,
-    do_sample          = False,
-    repetition_penalty = 1.0,
-    max_new_tokens     = 400,
-    use_cache          = True,
+    num_beams            = 5,
+    do_sample            = False,
+    repetition_penalty   = 1.1,
+    no_repeat_ngram_size = 3,
+    max_new_tokens       = 400,
+    use_cache            = True,
 )
 
 # Columnas CheXpert en el CSV oficial de MIMIC-CXR
@@ -279,12 +280,25 @@ def fase1_inferencia(
     logger.info("  Cargando procesador...")
     processor = cargar_procesador()
 
-    logger.info("  Cargando modelo con adaptadores LoRA en bfloat16...")
-    model, _ = cargar_modelo_entrenado(
-        model_dir       = model_dir,
-        model_name      = config.model.model_name,
-        use_quantization= config.model.load_in_8bit,
+    # // MODIFICADO PARA INCRUSTAR LORA CORRECTAMENTE
+    logger.info("  Cargando modelo base FRESCO en bfloat16...")
+    from transformers import Blip2ForConditionalGeneration
+    from peft import PeftModel
+
+    base_model = Blip2ForConditionalGeneration.from_pretrained(
+        config.model.model_name,
+        torch_dtype=torch.bfloat16,
+        device_map="auto"
     )
+
+    logger.info("  Incrustando adaptadores LoRA ESTRICTAMENTE en el language_model...")
+    # LA LLAVE MÁGICA: Conectar LoRA exactamente en la misma sub-red donde se entrenó
+    base_model.language_model = PeftModel.from_pretrained(
+        base_model.language_model,
+        str(model_dir)
+    )
+    model = base_model
+    # // FIN MODIFICACIÓN
     model.eval()
     device = next(model.parameters()).device
     logger.info(f"  Modelo en: {device} | dtype: {next(model.parameters()).dtype}")
@@ -306,8 +320,21 @@ def fase1_inferencia(
     n_eval  = n_total if num_samples is None else min(num_samples, n_total)
     logger.info(f"  Muestras Test Set: {n_total} | A evaluar: {n_eval}")
 
-    records = []
+    COLS = ["dicom_id", "study_id", "reference_report", "generated_report"]
     errores = 0
+    n_guardadas = 0
+
+    preds_path = output_dir / f"predicciones_{cfg_name}.csv"
+    # Crear CSV con encabezados (sobreescribe cualquier archivo previo incompleto)
+    pd.DataFrame(columns=COLS).to_csv(preds_path, index=False)
+    logger.info(f"  CSV incremental iniciado: {preds_path}")
+
+    # // MODIFICADO PARA BATCHING — acumuladores de lote
+    batch_size     = 4
+    batch_images   = []
+    batch_prompts  = []
+    batch_metadata = []   # lista de dicts con dicom_id, study_id, ref_text
+    # // FIN DECLARACIÓN ACUMULADORES
 
     for idx in tqdm(range(n_eval), desc=f"  Inferencia {cfg_name}", unit="img"):
         row      = test_dataset.data.iloc[idx]
@@ -340,37 +367,58 @@ def fase1_inferencia(
             errores += 1
             continue
 
-        try:
-            inputs = processor(
-                images=imagen_pil, text=prompt, return_tensors="pt"
-            ).to(device)
-
-            with torch.no_grad():
-                generated_ids = model.generate(**inputs, **GEN_PARAMS)
-
-            generated_report = processor.batch_decode(
-                generated_ids, skip_special_tokens=True
-            )[0].strip()
-
-        except Exception as exc:
-            logger.error(f"  Error inferencia {dicom_id}: {exc}")
-            errores += 1
-            continue
-
-        records.append({
-            "dicom_id":         dicom_id,
-            "study_id":         study_id,
-            "reference_report": ref_text,
-            "generated_report": generated_report,
+        # // MODIFICADO PARA BATCHING — acumular en lugar de inferir de a 1
+        batch_images.append(imagen_pil)
+        batch_prompts.append(prompt)
+        batch_metadata.append({
+            "dicom_id": dicom_id,
+            "study_id": study_id,
+            "ref_text": ref_text,
         })
 
-    logger.info(f"  Inferencia OK: {len(records)} reportes | {errores} errores")
+        # Vaciar el lote cuando está lleno O es la última iteración válida
+        if len(batch_images) == batch_size or idx == n_eval - 1:
+            try:
+                inputs = processor(
+                    images   = batch_images,
+                    text     = batch_prompts,
+                    return_tensors = "pt",
+                    padding  = True,
+                ).to(device)
 
-    preds_path = output_dir / f"predicciones_{cfg_name}.csv"
-    pd.DataFrame(
-        records,
-        columns=["dicom_id", "study_id", "reference_report", "generated_report"]
-    ).to_csv(preds_path, index=False)
+                with torch.no_grad():
+                    generated_ids = model.generate(**inputs, **GEN_PARAMS)
+
+                decoded_reports = processor.batch_decode(
+                    generated_ids, skip_special_tokens=True
+                )
+
+                # Iterar sobre resultados y metadatos juntos
+                batch_rows = []
+                for meta, generated_report in zip(batch_metadata, decoded_reports):
+                    batch_rows.append({
+                        "dicom_id":         meta["dicom_id"],
+                        "study_id":         meta["study_id"],
+                        "reference_report": meta["ref_text"],
+                        "generated_report": generated_report.strip(),
+                    })
+                    n_guardadas += 1
+
+                pd.DataFrame(batch_rows, columns=COLS).to_csv(
+                    preds_path, mode="a", header=False, index=False
+                )
+
+            except Exception as exc:
+                logger.error(f"  Error inferencia lote (idx={idx}): {exc}")
+                errores += len(batch_images)
+
+            # Limpiar acumuladores para el siguiente lote
+            batch_images.clear()
+            batch_prompts.clear()
+            batch_metadata.clear()
+        # // FIN MODIFICACIÓN BATCHING
+
+    logger.info(f"  Inferencia OK: {n_guardadas} reportes guardados | {errores} errores")
     logger.info(f"  Predicciones: {preds_path}")
 
     # Liberar VRAM
@@ -418,10 +466,20 @@ def fase2_evaluacion(
     logger.info(f"  Filas: {len(df)}")
 
     # ── Cargar y hacer merge con CSV oficial de CheXpert etiquetas ─
+    # pd.read_csv soporta .gz nativamente; buscamos también la variante .csv.gz
+    # si el usuario pasó la ruta sin extensión comprimida.
     has_chexpert_gt = False
+    if chexpert_csv is not None:
+        chexpert_csv = Path(chexpert_csv)
+        # Auto-fallback: si no existe la ruta exacta, probar la variante .gz
+        if not chexpert_csv.exists():
+            gz_alt = Path(str(chexpert_csv) + ".gz") if not str(chexpert_csv).endswith(".gz") else Path(str(chexpert_csv)[:-3])
+            if gz_alt.exists():
+                logger.info(f"  Usando variante: {gz_alt}")
+                chexpert_csv = gz_alt
     if chexpert_csv is not None and Path(chexpert_csv).exists():
         logger.info(f"  Cargando CSV oficial CheXpert: {chexpert_csv}")
-        df_chex = pd.read_csv(chexpert_csv)
+        df_chex = pd.read_csv(chexpert_csv, compression="infer")
 
         # Normalizar study_id (puede ser 's50691028' o 50691028)
         def _norm_sid(s):
@@ -557,8 +615,8 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--chexpert-csv", type=str,
-        default=str(BASE_DIR / "mimic-cxr-2.0.0-chexpert.csv"),
-        help="Ruta al CSV oficial de etiquetas CheXpert de MIMIC-CXR.",
+        default=str(BASE_DIR / "mimic-cxr-2.0.0-chexpert.csv.gz"),
+        help="Ruta al CSV oficial de etiquetas CheXpert de MIMIC-CXR (.csv o .csv.gz).",
     )
     parser.add_argument(
         "--num-samples", type=int, default=None,

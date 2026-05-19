@@ -45,7 +45,12 @@ training.log
 
 # Modelos y checkpoints
 modelo_entrenado/
-checkpoints/
+# Excluir checkpoints numerados del Trainer (checkpoint-XXXXX) pero no best_model/
+**/checkpoint-[0-9]*/
+# Excluir checkpoints completos de entrenamiento (23 GB cada uno)
+final_results/Config_A/
+final_results/Config_B/
+# Pesos binarios — siempre excluir independiente del directorio
 *.pth
 *.bin
 *.safetensors

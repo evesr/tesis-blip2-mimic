@@ -155,7 +155,8 @@ def generate_sample(model, sample: dict, processor, device, max_new_tokens: int)
         out = model.generate(
             pixel_values=pixel_values,
             max_new_tokens=max_new_tokens,
-            num_beams=1,        # greedy para velocidad en validacion
+            num_beams=1,    # greedy para velocidad en validacion
+            use_cache=False     # <--- ¡AQUÍ ESTÁ LA SOLUCIÓN! (Evita el choque con checkpointing)    
         )
     return processor.batch_decode(out, skip_special_tokens=True)[0]
 
@@ -336,6 +337,7 @@ train_dataset = MimicCXRDataset(
     clahe_tile_grid_size=config.data.clahe_tile_grid_size,
     max_length=512,         # OBJETIVO 2: limite explicito de tokens
     padding=config.data.padding,
+    prompt=config.inference.default_prompt,  # inyección del prompt de entrenamiento
 )
 
 val_dataset = MimicCXRDataset(
@@ -347,6 +349,7 @@ val_dataset = MimicCXRDataset(
     clahe_tile_grid_size=config.data.clahe_tile_grid_size,
     max_length=512,         # OBJETIVO 2: limite explicito de tokens
     padding=config.data.padding,
+    prompt=config.inference.default_prompt,  # inyección del prompt de entrenamiento
 )
 
 data_collator = DataCollatorForSeq2Seq(tokenizer=processor.tokenizer, padding=True)
@@ -486,7 +489,19 @@ def train_single_config(config_dict: dict, config_num: int, total_configs: int) 
         f"early stop = {TRAINING_CONFIG['early_stopping_patience']} evals sin mejora, "
         f"eval cada {TRAINING_CONFIG['eval_steps']} steps)...\n"
     )
-    trainer.train()
+
+    # MODIFICADO PARA RESCATE: detectar checkpoints existentes y reanudar si los hay
+    checkpoints_existentes = sorted(config_output_dir.glob("checkpoint-*"))
+    hay_checkpoints = len(checkpoints_existentes) > 0
+
+    if hay_checkpoints:
+        ultimo_checkpoint = checkpoints_existentes[-1]
+        print(f"   [RESCATE] Se detectaron {len(checkpoints_existentes)} checkpoint(s) en {config_output_dir}")
+        print(f"   [RESCATE] Reanudando desde: {ultimo_checkpoint.name}")
+        trainer.train(resume_from_checkpoint=True)
+    else:
+        print(f"   [NUEVO] No se detectaron checkpoints en {config_output_dir}. Iniciando entrenamiento desde cero.")
+        trainer.train()
 
     # Extraer resultados del log history del Trainer
     eval_logs  = [l for l in trainer.state.log_history if 'eval_loss' in l]

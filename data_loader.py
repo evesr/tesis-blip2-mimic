@@ -62,7 +62,8 @@ class MimicCXRDataset(Dataset):
         clahe_clip_limit: float = 2.0,
         clahe_tile_grid_size: Tuple[int, int] = (8, 8),
         max_length: int = 512,
-        padding: str = "max_length"
+        padding: str = "max_length",
+        prompt: str = None
     ):
         """
         Inicializa el dataset.
@@ -76,6 +77,8 @@ class MimicCXRDataset(Dataset):
             clahe_tile_grid_size: Tamaño de grid para CLAHE
             max_length: Longitud máxima de secuencia para texto
             padding: Estrategia de padding para texto
+            prompt: Prompt base opcional; si se proporciona, se usa como texto de
+                entrada (text) y el reporte como text_target (labels) — modo seq2seq
             
         Raises:
             FileNotFoundError: Si el CSV o el directorio de imágenes no existe
@@ -89,6 +92,7 @@ class MimicCXRDataset(Dataset):
         self.clahe_tile_grid_size = clahe_tile_grid_size
         self.max_length = max_length
         self.padding = padding
+        self.prompt = prompt
         
         # Validar existencia de archivos
         if not self.csv_path.exists():
@@ -262,39 +266,44 @@ class MimicCXRDataset(Dataset):
                 )
                 imagen_pil = crear_imagen_placeholder(self.image_size)
         
-        # OBJETIVO 2: Prompt dinámico — concatena contexto de vista con el prompt
-        # central de config.inference.default_prompt, evitando hardcodear el texto.
-        # Estructura: "[Context: {vista} view] {default_prompt}"
-        prompt_text = f"[Context: {vista_mapeada} view] {config.inference.default_prompt}"
-        
-        # Concatenar prompt + reporte para el formato VQA
-        full_text = prompt_text + report_text
+        # OBJETIVO 2: Prompt dinámico — contexto de vista + prompt base
+        # Estructura: "[Context: {vista} view] {prompt_base}"
+        base_prompt = self.prompt if self.prompt is not None else config.inference.default_prompt
+        prompt_text = f"[Context: {vista_mapeada} view] {base_prompt}"
         
         # Tokenizar imagen y texto con el procesador de BLIP2
         try:
+            # 1. Concatenamos el prompt y el reporte (Modo Causal LM estandar)
+            texto_final = f"{prompt_text} {report_text}" if self.prompt else report_text
+
+            # 2. Procesamos todo junto
             encoding = self.processor(
                 images=imagen_pil,
-                text=full_text,
+                text=texto_final,
+                return_tensors="pt",
                 padding=self.padding,
-                max_length=self.max_length,
                 truncation=True,
-                return_tensors="pt"
+                max_length=self.max_length
             )
-            
-            # Remover dimensión de batch (squeeze)
+
+            # 3. Removemos la dimension extra de batch (squeeze)
             encoding = {k: v.squeeze(0) for k, v in encoding.items()}
-            
-            # Crear labels (copiar input_ids)
-            # Durante el entrenamiento, el modelo aprenderá a predecir estos tokens
+
+            # 4. CREAMOS LOS LABELS MANUALMENTE
             encoding["labels"] = encoding["input_ids"].clone()
+
+            # 5. Enmascaramos el prompt con -100 para que el modelo solo aprenda a generar el reporte
+            if self.prompt is not None:
+                prompt_tokens = self.processor.tokenizer(prompt_text, add_special_tokens=False)["input_ids"]
+                # Ignorar la perdida en los tokens del prompt
+                encoding["labels"][:len(prompt_tokens)] = -100
             
             return encoding
             
         except Exception as e:
             logger.error(f"❌ Error procesando muestra {idx} (dicom_id={dicom_id}): {str(e)}")
-            # Retornar encoding vacío/placeholder en caso de error
-            return self._crear_encoding_placeholder()
-    
+            raise e
+
     def _crear_encoding_placeholder(self) -> Dict[str, torch.Tensor]:
         """
         Crea un encoding placeholder en caso de error.
