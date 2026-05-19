@@ -1,4 +1,6 @@
+# ───────────────────────────────────────────
 # Python
+# ────────────────────
 __pycache__/
 *.py[cod]
 *$py.class
@@ -20,13 +22,13 @@ wheels/
 .installed.cfg
 *.egg
 
-# Virtual environments
+# ───────────────────────────────────
+# Virtual environments / IDEs
+# ─────────────────────────────────────────
 venv/
 env/
 ENV/
 .venv
-
-# IDEs
 .vscode/
 .idea/
 *.swp
@@ -34,59 +36,53 @@ ENV/
 *~
 .DS_Store
 
-# Jupyter Notebooks
+# ─────────────
+# Jupyter
+# ───────────────────────────────────────
 .ipynb_checkpoints
 *.ipynb
 
-# Logs y outputs
-*.log
-logs/
-training.log
-
-# Modelos y checkpoints
-modelo_entrenado/
-# Excluir checkpoints numerados del Trainer (checkpoint-XXXXX) pero no best_model/
-**/checkpoint-[0-9]*/
-# Excluir checkpoints completos de entrenamiento (23 GB cada uno)
-final_results/Config_A/
-final_results/Config_B/
-# Pesos binarios — siempre excluir independiente del directorio
-*.pth
-*.bin
-*.safetensors
-
-# Datos grandes (imágenes y splits no se versionan)
+# ───────────────────────────────────────────────
+# IMÁGENES — las únicas excluidas (se pueden re-descargar)
+# ────────────────────────
 imagenes_10_porciento/
 imagenes_1_porciento/
 files/
 
-# Archivos de datos grandes
-*.gz
-*.zip
-~$*.xlsx
+# ───────
+# Checkpoints completos del Trainer (no los adaptadores LoRA)
+# Motivo: cada *.safetensors dentro mide ~11 GB, supera el
+# límite duro de GitHub LFS de 2 GB por archivo.
+# Los adaptadores LoRA finales (best_model_Config_X/) SÍ se
+# guardan vía LFS (~512 MB c/u) y están fuera de estas rutas.
+# ─
+final_results/Config_A/
+final_results/Config_B/
 
-# Resultados de evaluación
-evaluacion/
-resultados_evaluacion.csv
-*.png
-*.jpg
-graficos/
-
-# Cache de Hugging Face
+# ──────────────────────────────────────
+# Cache de Hugging Face y herramientas de desarrollo
+# ─────────────────────
 .cache/
 huggingface/
-
-# Pytest
 .pytest_cache/
 .coverage
 htmlcov/
-
-# MyPy
 .mypy_cache/
 .dmypy.json
 dmypy.json
 
+# ───────────────
 # Temporal
+# ────────────────────────────────────────
+modelo_entrenado/
 test_modelo_output/
 temp/
 tmp/
+~$*.xlsx
+**/checkpoint-*/
+sanity_check_output/
+semifinal_results/Config_4/
+semifinal_results/Config_5/
+semifinal_results/Config_6/
+semifinal_results/checkpoints/
+grid_search_results/temp_*/
