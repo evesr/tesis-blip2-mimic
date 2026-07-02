@@ -1,0 +1,17 @@
+nivel,categoria,disenado_sucio_P,disenado_sucio_R,disenado_sucio_F1,disenado_limpio_P,disenado_limpio_R,disenado_limpio_F1,nuevo_sucio_P,nuevo_sucio_R,nuevo_sucio_F1
+por_patologia,No Finding,0.4575,0.3168,0.3744,0.4677,0.4075,0.4356,0.4099,0.3722,0.3902
+por_patologia,Enlarged Cardiomediastinum,0.0977,0.5034,0.1636,0.0925,0.5017,0.1562,0.1055,0.4519,0.171
+por_patologia,Cardiomegaly,0.1482,0.448,0.2227,0.1461,0.429,0.2179,0.162,0.5462,0.2499
+por_patologia,Lung Opacity,0.1921,0.3989,0.2593,0.2385,0.3456,0.2822,0.2096,0.5563,0.3045
+por_patologia,Lung Lesion,0.0331,0.4862,0.0619,0.0329,0.4277,0.0611,0.033,0.5292,0.0621
+por_patologia,Edema,0.2856,0.1652,0.2093,0.3032,0.2072,0.2462,0.2776,0.0761,0.1195
+por_patologia,Consolidation,0.0533,0.4663,0.0956,0.0527,0.3034,0.0899,0.0506,0.4654,0.0914
+por_patologia,Pneumonia,0.1681,0.2765,0.2091,0.1714,0.2432,0.2011,0.1712,0.1348,0.1509
+por_patologia,Atelectasis,0.1593,0.2676,0.1997,0.1502,0.2508,0.1879,0.1777,0.3844,0.243
+por_patologia,Pneumothorax,0.0269,0.1052,0.0428,0.0384,0.121,0.0583,0.0395,0.1558,0.0631
+por_patologia,Pleural Effusion,0.2676,0.505,0.3498,0.2791,0.5139,0.3617,0.2754,0.5143,0.3587
+por_patologia,Pleural Other,0.0121,0.5837,0.0238,0.0106,0.5837,0.0209,0.0114,0.5023,0.0224
+por_patologia,Fracture,0.0219,0.334,0.041,0.0225,0.283,0.0417,0.0252,0.317,0.0466
+por_patologia,Support Devices,0.2513,0.5771,0.3501,0.2828,0.5853,0.3814,0.2961,0.4222,0.3481
+general,MICRO (pooled 14 clases),0.1403,0.379,0.2048,0.1535,0.3838,0.2193,0.1486,0.394,0.2159
+general,MACRO (nanmean 14 clases),0.1553,0.3881,0.1859,0.1635,0.3717,0.1959,0.1603,0.3877,0.1872

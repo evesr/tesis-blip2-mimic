@@ -1,0 +1,232 @@
+# Audit Log — Fase 2.1 — Config_B1
+# Iniciado: 2026-05-27 21:05:58
+# Columnas por entrada: Step | BLEU-4 | ROUGE-L | Pred | Real
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+Step=50 | Error en muestra 559: You have to specify pixel_values
+Step=50 | Error en muestra 33: You have to specify pixel_values
+Step=50 | Error en muestra 275: You have to specify pixel_values
+Step=50 | Error en muestra 198: You have to specify pixel_values
+Step=50 | Error en muestra 192: You have to specify pixel_values
+Step=50 | Error en muestra 155: You have to specify pixel_values
+Step=50 | Error en muestra 39: You have to specify pixel_values
+Step=50 | Error en muestra 223: You have to specify pixel_values
+Step=50 | Error en muestra 658: You have to specify pixel_values
+Step=50 | Error en muestra 174: You have to specify pixel_values
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+Step=100 | Error en muestra 57: You have to specify pixel_values
+Step=100 | Error en muestra 184: You have to specify pixel_values
+Step=100 | Error en muestra 403: You have to specify pixel_values
+Step=100 | Error en muestra 67: You have to specify pixel_values
+Step=100 | Error en muestra 220: You have to specify pixel_values
+Step=100 | Error en muestra 494: You have to specify pixel_values
+Step=100 | Error en muestra 430: You have to specify pixel_values
+Step=100 | Error en muestra 240: You have to specify pixel_values
+Step=100 | Error en muestra 218: You have to specify pixel_values
+Step=100 | Error en muestra 49: You have to specify pixel_values
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+Step=150 | Error en muestra 262: You have to specify pixel_values
+Step=150 | Error en muestra 186: You have to specify pixel_values
+Step=150 | Error en muestra 240: You have to specify pixel_values
+Step=150 | Error en muestra 15: You have to specify pixel_values
+Step=150 | Error en muestra 564: You have to specify pixel_values
+Step=150 | Error en muestra 632: You have to specify pixel_values
+Step=150 | Error en muestra 366: You have to specify pixel_values
+Step=150 | Error en muestra 607: You have to specify pixel_values
+Step=150 | Error en muestra 621: You have to specify pixel_values
+Step=150 | Error en muestra 665: You have to specify pixel_values
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+Step=200 | Error en muestra 92: You have to specify pixel_values
+Step=200 | Error en muestra 305: You have to specify pixel_values
+Step=200 | Error en muestra 427: You have to specify pixel_values
+Step=200 | Error en muestra 617: You have to specify pixel_values
+Step=200 | Error en muestra 586: You have to specify pixel_values
+Step=200 | Error en muestra 620: You have to specify pixel_values
+Step=200 | Error en muestra 523: You have to specify pixel_values
+Step=200 | Error en muestra 589: You have to specify pixel_values
+Step=200 | Error en muestra 209: You have to specify pixel_values
+Step=200 | Error en muestra 332: You have to specify pixel_values
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+Step=250 | Error en muestra 260: You have to specify pixel_values
+Step=250 | Error en muestra 593: You have to specify pixel_values
+Step=250 | Error en muestra 622: You have to specify pixel_values
+Step=250 | Error en muestra 42: You have to specify pixel_values
+Step=250 | Error en muestra 130: You have to specify pixel_values
+Step=250 | Error en muestra 478: You have to specify pixel_values
+Step=250 | Error en muestra 553: You have to specify pixel_values
+Step=250 | Error en muestra 699: You have to specify pixel_values
+Step=250 | Error en muestra 429: You have to specify pixel_values
+Step=250 | Error en muestra 344: You have to specify pixel_values
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+Step=300 | Error en muestra 656: You have to specify pixel_values
+Step=300 | Error en muestra 236: You have to specify pixel_values
+Step=300 | Error en muestra 675: You have to specify pixel_values
+Step=300 | Error en muestra 235: You have to specify pixel_values
+Step=300 | Error en muestra 258: You have to specify pixel_values
+Step=300 | Error en muestra 324: You have to specify pixel_values
+Step=300 | Error en muestra 283: You have to specify pixel_values
+Step=300 | Error en muestra 499: You have to specify pixel_values
+Step=300 | Error en muestra 723: You have to specify pixel_values
+Step=300 | Error en muestra 610: You have to specify pixel_values
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+Step=350 | Error en muestra 594: You have to specify pixel_values
+Step=350 | Error en muestra 269: You have to specify pixel_values
+Step=350 | Error en muestra 730: You have to specify pixel_values
+Step=350 | Error en muestra 712: You have to specify pixel_values
+Step=350 | Error en muestra 224: You have to specify pixel_values
+Step=350 | Error en muestra 616: You have to specify pixel_values
+Step=350 | Error en muestra 542: You have to specify pixel_values
+Step=350 | Error en muestra 452: You have to specify pixel_values
+Step=350 | Error en muestra 692: You have to specify pixel_values
+Step=350 | Error en muestra 286: You have to specify pixel_values
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+Step=400 | Error en muestra 702: You have to specify pixel_values
+Step=400 | Error en muestra 39: You have to specify pixel_values
+Step=400 | Error en muestra 113: You have to specify pixel_values
+Step=400 | Error en muestra 691: You have to specify pixel_values
+Step=400 | Error en muestra 546: You have to specify pixel_values
+Step=400 | Error en muestra 151: You have to specify pixel_values
+Step=400 | Error en muestra 177: You have to specify pixel_values
+Step=400 | Error en muestra 139: You have to specify pixel_values
+Step=400 | Error en muestra 649: You have to specify pixel_values
+Step=400 | Error en muestra 153: You have to specify pixel_values
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+Step=450 | Error en muestra 416: You have to specify pixel_values
+Step=450 | Error en muestra 249: You have to specify pixel_values
+Step=450 | Error en muestra 575: You have to specify pixel_values
+Step=450 | Error en muestra 141: You have to specify pixel_values
+Step=450 | Error en muestra 345: You have to specify pixel_values
+Step=450 | Error en muestra 714: You have to specify pixel_values
+Step=450 | Error en muestra 580: You have to specify pixel_values
+Step=450 | Error en muestra 618: You have to specify pixel_values
+Step=450 | Error en muestra 4: You have to specify pixel_values
+Step=450 | Error en muestra 32: You have to specify pixel_values
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+Step=500 | Error en muestra 612: You have to specify pixel_values
+Step=500 | Error en muestra 697: You have to specify pixel_values
+Step=500 | Error en muestra 636: You have to specify pixel_values
+Step=500 | Error en muestra 368: You have to specify pixel_values
+Step=500 | Error en muestra 14: You have to specify pixel_values
+Step=500 | Error en muestra 30: You have to specify pixel_values
+Step=500 | Error en muestra 531: You have to specify pixel_values
+Step=500 | Error en muestra 492: You have to specify pixel_values
+Step=500 | Error en muestra 152: You have to specify pixel_values
+Step=500 | Error en muestra 510: You have to specify pixel_values
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+Step=550 | Error en muestra 568: You have to specify pixel_values
+Step=550 | Error en muestra 232: You have to specify pixel_values
+Step=550 | Error en muestra 612: You have to specify pixel_values
+Step=550 | Error en muestra 312: You have to specify pixel_values
+Step=550 | Error en muestra 624: You have to specify pixel_values
+Step=550 | Error en muestra 620: You have to specify pixel_values
+Step=550 | Error en muestra 171: You have to specify pixel_values
+Step=550 | Error en muestra 430: You have to specify pixel_values
+Step=550 | Error en muestra 126: You have to specify pixel_values
+Step=550 | Error en muestra 200: You have to specify pixel_values
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+Step=600 | Error en muestra 264: You have to specify pixel_values
+Step=600 | Error en muestra 699: You have to specify pixel_values
+Step=600 | Error en muestra 44: You have to specify pixel_values
+Step=600 | Error en muestra 192: You have to specify pixel_values
+Step=600 | Error en muestra 3: You have to specify pixel_values
+Step=600 | Error en muestra 183: You have to specify pixel_values
+Step=600 | Error en muestra 2: You have to specify pixel_values
+Step=600 | Error en muestra 521: You have to specify pixel_values
+Step=600 | Error en muestra 475: You have to specify pixel_values
+Step=600 | Error en muestra 666: You have to specify pixel_values
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+Step=650 | Error en muestra 470: You have to specify pixel_values
+Step=650 | Error en muestra 533: You have to specify pixel_values
+Step=650 | Error en muestra 139: You have to specify pixel_values
+Step=650 | Error en muestra 636: You have to specify pixel_values
+Step=650 | Error en muestra 54: You have to specify pixel_values
+Step=650 | Error en muestra 337: You have to specify pixel_values
+Step=650 | Error en muestra 92: You have to specify pixel_values
+Step=650 | Error en muestra 303: You have to specify pixel_values
+Step=650 | Error en muestra 659: You have to specify pixel_values
+Step=650 | Error en muestra 4: You have to specify pixel_values
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+Step=700 | Error en muestra 541: You have to specify pixel_values
+Step=700 | Error en muestra 512: You have to specify pixel_values
+Step=700 | Error en muestra 70: You have to specify pixel_values
+Step=700 | Error en muestra 425: You have to specify pixel_values
+Step=700 | Error en muestra 451: You have to specify pixel_values
+Step=700 | Error en muestra 694: You have to specify pixel_values
+Step=700 | Error en muestra 194: You have to specify pixel_values
+Step=700 | Error en muestra 284: You have to specify pixel_values
+Step=700 | Error en muestra 493: You have to specify pixel_values
+Step=700 | Error en muestra 41: You have to specify pixel_values
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+Step=750 | Error en muestra 326: You have to specify pixel_values
+Step=750 | Error en muestra 125: You have to specify pixel_values
+Step=750 | Error en muestra 411: You have to specify pixel_values
+Step=750 | Error en muestra 536: You have to specify pixel_values
+Step=750 | Error en muestra 718: You have to specify pixel_values
+Step=750 | Error en muestra 333: You have to specify pixel_values
+Step=750 | Error en muestra 155: You have to specify pixel_values
+Step=750 | Error en muestra 734: You have to specify pixel_values
+Step=750 | Error en muestra 64: You have to specify pixel_values
+Step=750 | Error en muestra 15: You have to specify pixel_values
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+Step=800 | Error en muestra 260: You have to specify pixel_values
+Step=800 | Error en muestra 576: You have to specify pixel_values
+Step=800 | Error en muestra 370: You have to specify pixel_values
+Step=800 | Error en muestra 324: You have to specify pixel_values
+Step=800 | Error en muestra 695: You have to specify pixel_values
+Step=800 | Error en muestra 268: You have to specify pixel_values
+Step=800 | Error en muestra 722: You have to specify pixel_values
+Step=800 | Error en muestra 518: You have to specify pixel_values
+Step=800 | Error en muestra 700: You have to specify pixel_values
+Step=800 | Error en muestra 32: You have to specify pixel_values
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+Step=850 | Error en muestra 413: You have to specify pixel_values
+Step=850 | Error en muestra 153: You have to specify pixel_values
+Step=850 | Error en muestra 189: You have to specify pixel_values
+Step=850 | Error en muestra 126: You have to specify pixel_values
+Step=850 | Error en muestra 549: You have to specify pixel_values
+Step=850 | Error en muestra 90: You have to specify pixel_values
+Step=850 | Error en muestra 81: You have to specify pixel_values
+Step=850 | Error en muestra 570: You have to specify pixel_values
+Step=850 | Error en muestra 728: You have to specify pixel_values
+Step=850 | Error en muestra 354: You have to specify pixel_values
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+Step=900 | Error en muestra 62: You have to specify pixel_values
+Step=900 | Error en muestra 564: You have to specify pixel_values
+Step=900 | Error en muestra 312: You have to specify pixel_values
+Step=900 | Error en muestra 107: You have to specify pixel_values
+Step=900 | Error en muestra 671: You have to specify pixel_values
+Step=900 | Error en muestra 640: You have to specify pixel_values
+Step=900 | Error en muestra 607: You have to specify pixel_values
+Step=900 | Error en muestra 298: You have to specify pixel_values
+Step=900 | Error en muestra 468: You have to specify pixel_values
+Step=900 | Error en muestra 496: You have to specify pixel_values
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+Step=950 | Error en muestra 719: You have to specify pixel_values
+Step=950 | Error en muestra 722: You have to specify pixel_values
+Step=950 | Error en muestra 512: You have to specify pixel_values
+Step=950 | Error en muestra 4: You have to specify pixel_values
+Step=950 | Error en muestra 168: You have to specify pixel_values
+Step=950 | Error en muestra 361: You have to specify pixel_values
+Step=950 | Error en muestra 57: You have to specify pixel_values
+Step=950 | Error en muestra 632: You have to specify pixel_values
+Step=950 | Error en muestra 87: You have to specify pixel_values
+Step=950 | Error en muestra 730: You have to specify pixel_values

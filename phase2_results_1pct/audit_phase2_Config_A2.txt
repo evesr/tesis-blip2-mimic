@@ -1,0 +1,4 @@
+# Audit Log — Fase 2.1 — Config_A2
+# Iniciado: 2026-05-28 02:16:45
+# Columnas por entrada: Step | BLEU-4 | ROUGE-L | Pred | Real
+

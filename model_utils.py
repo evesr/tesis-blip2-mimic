@@ -101,7 +101,9 @@ def cargar_modelo_base(
     model_name: str = "Salesforce/blip2-opt-2.7b",
     use_quantization: bool = True,
     device_map: str = "auto",
-    cache_dir: Optional[str] = None
+    cache_dir: Optional[str] = None,
+    attn_implementation: Optional[str] = None,
+    max_memory: Optional[dict] = None,
 ) -> Blip2ForConditionalGeneration:
     """
     Carga el modelo base BLIP2 (sin LoRA).
@@ -142,12 +144,19 @@ def cargar_modelo_base(
     # - RTX 3090 (Ampere) tiene soporte nativo de bfloat16.
     # - Con bf16=True en el Trainer no se instancia GradScaler,
     #   eliminando el crash 'Attempting to unscale FP16 gradients'.
+    extra_kwargs = {}
+    if attn_implementation is not None:
+        extra_kwargs["attn_implementation"] = attn_implementation
+    if max_memory is not None:
+        extra_kwargs["max_memory"] = max_memory
+
     model = Blip2ForConditionalGeneration.from_pretrained(
         model_name,
         quantization_config=quantization_config,
         device_map=device_map if device_map else "auto",
         torch_dtype=torch.bfloat16,
-        cache_dir=cache_dir
+        cache_dir=cache_dir,
+        **extra_kwargs,
     )
     
     logger.info("✅ Modelo base cargado exitosamente")

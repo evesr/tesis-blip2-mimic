@@ -1,0 +1,15 @@
+{
+  "config_name":"Phase3_Puente",
+  "step":21875,
+  "val_loss":0.5279877186,
+  "param_count":107130880,
+  "trained_modules":[
+    "language_projection",
+    "qformer",
+    "query_tokens"
+  ],
+  "base_model":"Salesforce\/blip2-opt-2.7b",
+  "phase2_llm_dir":"\/workspace\/tesis-blip2-mimic\/phase2_results-50pct\/checkpoints\/best_model_Config_B1\/llm",
+  "phase2_vit_dir":"\/workspace\/tesis-blip2-mimic\/phase2_results-50pct\/checkpoints\/best_model_Config_B1\/vit",
+  "saved_at":"2026-06-14 21:31:42"
+}

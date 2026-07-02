@@ -9,6 +9,7 @@ Date: 2026-04-22
 """
 
 import os
+import time
 import pandas as pd
 import torch
 from torch.utils.data import Dataset, DataLoader
@@ -16,6 +17,8 @@ from pathlib import Path
 from typing import Dict, Optional, Tuple, Any, Union
 from PIL import Image
 import logging
+
+from torchvision import transforms
 
 from preprocessing import estandarizar_imagen, crear_imagen_placeholder
 from config import config
@@ -63,7 +66,9 @@ class MimicCXRDataset(Dataset):
         clahe_tile_grid_size: Tuple[int, int] = (8, 8),
         max_length: int = 512,
         padding: str = "max_length",
-        prompt: str = None
+        prompt: str = None,
+        augment: bool = False,
+        debug_log_samples: int = 3
     ):
         """
         Inicializa el dataset.
@@ -79,6 +84,13 @@ class MimicCXRDataset(Dataset):
             padding: Estrategia de padding para texto
             prompt: Prompt base opcional; si se proporciona, se usa como texto de
                 entrada (text) y el reporte como text_target (labels) — modo seq2seq
+            augment: Si True, aplica Data Augmentation espacial AL VUELO en
+                __getitem__ (RandomRotation ±5° + RandomAffine translate ±5%),
+                DESPUÉS de CLAHE+padding y ANTES del Blip2Processor. Debe ser
+                True SOLO para el split de ENTRENAMIENTO; False en val/test/
+                inferencia para una evaluación determinista y limpia.
+            debug_log_samples: Número de muestras iniciales (por worker) para las
+                que __getitem__ emite un log detallado de trazabilidad.
             
         Raises:
             FileNotFoundError: Si el CSV o el directorio de imágenes no existe
@@ -93,6 +105,36 @@ class MimicCXRDataset(Dataset):
         self.max_length = max_length
         self.padding = padding
         self.prompt = prompt
+
+        # ── Data Augmentation Espacial (solo ENTRENAMIENTO) ──────────────────
+        # Se aplica AL VUELO en __getitem__, DESPUÉS de CLAHE+padding y ANTES del
+        # Blip2Processor. SOLO transformaciones GEOMÉTRICAS clínicamente seguras:
+        #   • RandomRotation(±5°)            → tolera la ligera inclinación del paciente
+        #   • RandomAffine(translate ±5% XY) → tolera el descentrado del tórax
+        # PROHIBIDO (decisión clínica explícita):
+        #   ✘ ColorJitter/brillo/contraste → destruiría el realce CLAHE ya aplicado
+        #   ✘ RandomCrop                    → podría recortar hallazgos periféricos
+        # fill=0 (negro) = consistente con el padding negro del X-ray.
+        self.augment = augment
+        self.debug_log_samples = debug_log_samples
+        self._debug_logged = 0  # contador interno; se reinicia en cada worker (fork)
+
+        if self.augment:
+            self.augment_transform = transforms.Compose([
+                transforms.RandomRotation(
+                    degrees=5,
+                    interpolation=transforms.InterpolationMode.BILINEAR,
+                    fill=0,
+                ),
+                transforms.RandomAffine(
+                    degrees=0,
+                    translate=(0.05, 0.05),
+                    interpolation=transforms.InterpolationMode.BILINEAR,
+                    fill=0,
+                ),
+            ])
+        else:
+            self.augment_transform = None
         
         # Validar existencia de archivos
         if not self.csv_path.exists():
@@ -130,6 +172,55 @@ class MimicCXRDataset(Dataset):
         self.data = self.data.reset_index(drop=True)
         
         logger.info(f"✅ Dataset inicializado con {len(self.data)} muestras")
+
+        # ── OPTIMIZACIÓN I/O: índice {dicom_id: ruta} construido UNA sola vez ──
+        # Antes: _buscar_imagen hacía un rglob RECURSIVO sobre TODO el árbol de
+        # imágenes (~191K archivos) en CADA __getitem__ → O(N) por muestra,
+        # O(N²) por época: el cuello de botella dominante del entrenamiento.
+        # Ahora: un único recorrido del árbol en __init__ → lookups O(1) en RAM.
+        # Se construye ANTES del fork de los DataLoader workers, así que se
+        # hereda por copy-on-write (no se reconstruye por worker).
+        self._indice_imagenes = self._construir_indice_imagenes()
+
+        # ── OPTIMIZACIÓN CPU: prompts pre-tokenizados por vista ────────────────
+        # El prompt_text solo depende de la vista (3 valores: Frontal/Lateral/
+        # Unknown).  Pre-tokenizamos los 3 una vez para no llamar al tokenizer
+        # por cada muestra al enmascarar el prompt en los labels.
+        self._prompt_text_cache: Dict[str, str] = {}
+        self._prompt_ntokens_cache: Dict[str, int] = {}
+        if self.prompt is not None:
+            base_prompt = self.prompt
+            for _vista in ("Frontal", "Lateral", "Unknown"):
+                _pt = f"[Context: {_vista} view] {base_prompt}"
+                self._prompt_text_cache[_vista] = _pt
+                self._prompt_ntokens_cache[_vista] = len(
+                    self.processor.tokenizer(_pt, add_special_tokens=False)["input_ids"]
+                )
+
+        # ── Log detallado de configuración (máxima trazabilidad) ──────────────
+        _ejemplo_prompt = (
+            f"[Context: Frontal view] "
+            f"{self.prompt if self.prompt is not None else config.inference.default_prompt}"
+        )
+        logger.info("🧾 ─── Config Dataset (%s) ────────────────────────────", self.csv_path.name)
+        logger.info("    • image_size=%s | CLAHE(clip=%.2f, grid=%s) | padding=%s | max_length=%d",
+                    self.image_size, self.clahe_clip_limit, self.clahe_tile_grid_size,
+                    self.padding, self.max_length)
+        logger.info("    • prompt_base=%s",
+                    "config.inference.default_prompt" if self.prompt is None
+                    else "explícito (arg prompt=)")
+        logger.info("    • estructura_prompt='[Context: {vista} view] {prompt_base}'")
+        logger.info("    • ejemplo_prompt=%r", _ejemplo_prompt)
+        logger.info("    • índice_imágenes=%d rutas | prompts_pretokenizados=%d vistas",
+                    len(self._indice_imagenes), len(self._prompt_ntokens_cache))
+        if self.augment:
+            logger.info("    • 🔄 DATA AUGMENTATION: ACTIVADA (split de ENTRENAMIENTO)")
+            logger.info("        - RandomRotation(degrees=±5, interp=BILINEAR, fill=0)")
+            logger.info("        - RandomAffine(degrees=0, translate=±5% XY, interp=BILINEAR, fill=0)")
+            logger.info("        - SIN ColorJitter (protege CLAHE) · SIN RandomCrop (protege hallazgos)")
+            logger.info("        - Orden: imagen → CLAHE+padding → AUGMENT → Blip2Processor")
+        else:
+            logger.info("    • 🔒 DATA AUGMENTATION: DESACTIVADA (val/test/inferencia → determinista)")
     
     def __len__(self) -> int:
         """
@@ -140,39 +231,82 @@ class MimicCXRDataset(Dataset):
         """
         return len(self.data)
     
+    def _construir_indice_imagenes(self) -> Dict[str, Path]:
+        """
+        Recorre el árbol de imágenes UNA sola vez y construye un índice
+        {dicom_id: ruta_absoluta} para lookups O(1) en __getitem__.
+
+        Usa os.scandir recursivo (mucho más rápido que pathlib.rglob) y soporta
+        múltiples extensiones, priorizando .jpg.  Solo se registran archivos con
+        extensión de imagen reconocida; el stem (nombre sin extensión) es el
+        dicom_id.
+
+        Returns:
+            Dict {dicom_id: Path}
+        """
+        t0 = time.perf_counter()
+        # Prioridad de extensiones: .jpg primero (no se sobrescribe por otra)
+        exts_validas = {".jpg", ".jpeg", ".png"}
+        indice: Dict[str, Path] = {}
+        n_archivos = 0
+
+        # Recorrido iterativo con os.scandir (rápido, sin construir Paths
+        # intermedios por nivel como hace rglob).
+        pendientes = [str(self.images_dir)]
+        while pendientes:
+            actual = pendientes.pop()
+            try:
+                with os.scandir(actual) as it:
+                    for entry in it:
+                        if entry.is_dir(follow_symlinks=False):
+                            pendientes.append(entry.path)
+                            continue
+                        nombre = entry.name
+                        punto = nombre.rfind(".")
+                        if punto <= 0:
+                            continue
+                        ext = nombre[punto:].lower()
+                        if ext not in exts_validas:
+                            continue
+                        n_archivos += 1
+                        stem = nombre[:punto]
+                        # No sobrescribir un .jpg ya indexado con otra extensión
+                        if stem in indice and indice[stem].suffix.lower() == ".jpg":
+                            continue
+                        indice[stem] = Path(entry.path)
+            except (PermissionError, FileNotFoundError):
+                continue
+
+        dt = time.perf_counter() - t0
+
+        # Cobertura: cuántos dicom_id del CSV quedaron resueltos
+        ids_csv = set(self.data["dicom_id"].astype(str))
+        encontrados = sum(1 for d in ids_csv if d in indice)
+        faltantes = len(ids_csv) - encontrados
+        logger.info(
+            "🗂️  Índice de imágenes: %d archivos indexados en %.2fs | "
+            "CSV resueltos=%d/%d (faltan %d)",
+            n_archivos, dt, encontrados, len(ids_csv), faltantes,
+        )
+        if faltantes > 0:
+            logger.warning(
+                "    ⚠️ %d dicom_id del CSV sin imagen en el índice → usarán placeholder",
+                faltantes,
+            )
+        return indice
+
     def _buscar_imagen(self, dicom_id: str) -> Optional[Path]:
         """
-        Busca la imagen correspondiente al dicom_id en el directorio de imágenes.
-        
-        La búsqueda es recursiva y busca archivos .jpg que coincidan con el dicom_id.
-        
+        Devuelve la ruta de la imagen para un dicom_id mediante lookup O(1)
+        en el índice pre-construido (sin tocar el disco).
+
         Args:
             dicom_id: Identificador DICOM de la imagen
-            
+
         Returns:
-            Path a la imagen si se encuentra, None en caso contrario
+            Path a la imagen si está en el índice, None en caso contrario
         """
-        # Buscar recursivamente en el directorio de imágenes
-        # Las imágenes siguen la estructura: files/p10/p10000032/s50414267/dicom_id.jpg
-        
-        # Intentar buscar con extensión .jpg
-        imagen_path = None
-        
-        # Buscar recursivamente
-        for archivo in self.images_dir.rglob(f"{dicom_id}.jpg"):
-            imagen_path = archivo
-            break
-        
-        if imagen_path is None:
-            # Intentar con otras extensiones
-            for ext in ['.png', '.jpeg', '.JPG', '.PNG', '.JPEG']:
-                for archivo in self.images_dir.rglob(f"{dicom_id}{ext}"):
-                    imagen_path = archivo
-                    break
-                if imagen_path:
-                    break
-        
-        return imagen_path
+        return self._indice_imagenes.get(str(dicom_id))
     
     def _mapear_vista(self, view_position: str) -> str:
         """
@@ -246,12 +380,14 @@ class MimicCXRDataset(Dataset):
         
         # Buscar y cargar imagen
         imagen_path = self._buscar_imagen(dicom_id)
-        
+
+        imagen_es_placeholder = False
         if imagen_path is None or not imagen_path.exists():
             logger.warning(f"⚠️ Imagen no encontrada para {dicom_id}, usando placeholder")
             imagen_pil = crear_imagen_placeholder(self.image_size)
+            imagen_es_placeholder = True
         else:
-            # Procesar imagen con el pipeline completo
+            # Procesar imagen con el pipeline completo (CLAHE → RGB → padding/resize)
             imagen_pil = estandarizar_imagen(
                 imagen_path,
                 target_size=self.image_size,
@@ -265,16 +401,40 @@ class MimicCXRDataset(Dataset):
                     f"⚠️ Error procesando imagen {imagen_path}, usando placeholder"
                 )
                 imagen_pil = crear_imagen_placeholder(self.image_size)
+                imagen_es_placeholder = True
+
+        # ── Data Augmentation Espacial AL VUELO ──────────────────────────
+        # DESPUÉS de CLAHE+padding y ANTES del Blip2Processor. Solo sobre imágenes
+        # REALES (nunca sobre placeholders negros, donde no aportaría señal).
+        augment_aplicado = False
+        if self.augment and self.augment_transform is not None and not imagen_es_placeholder:
+            imagen_pil = self.augment_transform(imagen_pil)
+            augment_aplicado = True
         
         # OBJETIVO 2: Prompt dinámico — contexto de vista + prompt base
         # Estructura: "[Context: {vista} view] {prompt_base}"
-        base_prompt = self.prompt if self.prompt is not None else config.inference.default_prompt
-        prompt_text = f"[Context: {vista_mapeada} view] {base_prompt}"
+        # Usa el cache pre-tokenizado por vista (construido en __init__) para
+        # evitar reconstruir/re-tokenizar el prompt en cada muestra.
+        if self.prompt is not None:
+            prompt_text = self._prompt_text_cache.get(
+                vista_mapeada, f"[Context: {vista_mapeada} view] {self.prompt}"
+            )
+        else:
+            base_prompt = config.inference.default_prompt
+            prompt_text = f"[Context: {vista_mapeada} view] {base_prompt}"
         
         # Tokenizar imagen y texto con el procesador de BLIP2
         try:
             # 1. Concatenamos el prompt y el reporte (Modo Causal LM estandar)
-            texto_final = f"{prompt_text} {report_text}" if self.prompt else report_text
+            #    + token EOS EXPLÍCITO al final del reporte para enseñar al modelo
+            #    a DETENER la generación (anti Tail-Babbling). El tokenizer de OPT
+            #    NO añade EOS automáticamente, por lo que sin este token el modelo
+            #    nunca observa el fin de secuencia y sobre-genera en inferencia.
+            eos_token = self.processor.tokenizer.eos_token or ""
+            if self.prompt:
+                texto_final = f"{prompt_text} {report_text}{eos_token}"
+            else:
+                texto_final = f"{report_text}{eos_token}"
 
             # 2. Procesamos todo junto
             encoding = self.processor(
@@ -289,14 +449,60 @@ class MimicCXRDataset(Dataset):
             # 3. Removemos la dimension extra de batch (squeeze)
             encoding = {k: v.squeeze(0) for k, v in encoding.items()}
 
+            # 3.bis GARANTÍA EOS anti-truncación: si truncation recortó un reporte
+            #    largo a max_length, el EOS del final se habría perdido. Forzamos
+            #    que el último token REAL (no-pad) sea EOS para que la Cross-Entropy
+            #    SIEMPRE penalice la sobre-generación, también en reportes largos.
+            eos_id = self.processor.tokenizer.eos_token_id
+            if eos_id is not None and "attention_mask" in encoding:
+                _real = (encoding["attention_mask"] == 1).nonzero(as_tuple=True)[0]
+                if len(_real) > 0:
+                    _last = int(_real[-1].item())
+                    if int(encoding["input_ids"][_last].item()) != eos_id:
+                        encoding["input_ids"][_last] = eos_id
+
             # 4. CREAMOS LOS LABELS MANUALMENTE
             encoding["labels"] = encoding["input_ids"].clone()
 
             # 5. Enmascaramos el prompt con -100 para que el modelo solo aprenda a generar el reporte
+            n_prompt_tokens = 0
             if self.prompt is not None:
-                prompt_tokens = self.processor.tokenizer(prompt_text, add_special_tokens=False)["input_ids"]
+                # Conteo pre-tokenizado por vista (sin llamar al tokenizer aquí)
+                n_prompt_tokens = self._prompt_ntokens_cache.get(vista_mapeada)
+                if n_prompt_tokens is None:
+                    n_prompt_tokens = len(self.processor.tokenizer(
+                        prompt_text, add_special_tokens=False)["input_ids"])
                 # Ignorar la perdida en los tokens del prompt
-                encoding["labels"][:len(prompt_tokens)] = -100
+                encoding["labels"][:n_prompt_tokens] = -100
+
+            # ── Log detallado y ACOTADO (primeras N muestras por worker) ───────
+            # Bounded por diseño: con 12-32 workers y debug_log_samples=3 son
+            # ~36-96 líneas al inicio, no millones. Da trazabilidad real sin
+            # inundar el log ni frenar el entrenamiento.
+            if self._debug_logged < self.debug_log_samples:
+                self._debug_logged += 1
+                _winfo = torch.utils.data.get_worker_info()
+                _wid = _winfo.id if _winfo is not None else 0
+                logger.info(
+                    "🔬 [muestra debug %d/%d · worker %s] idx=%d dicom=%s vista=%s",
+                    self._debug_logged, self.debug_log_samples, _wid, idx, dicom_id, vista_mapeada,
+                )
+                logger.info("        imagen=%s | augment_aplicado=%s",
+                            "placeholder" if imagen_es_placeholder else "real", augment_aplicado)
+                logger.info("        prompt=%r", prompt_text)
+                logger.info("        texto_final(120c)=%r", texto_final[:120])
+                _eos_id = self.processor.tokenizer.eos_token_id
+                _real_pos = (encoding["attention_mask"] == 1).nonzero(as_tuple=True)[0]
+                _last_real = int(encoding["input_ids"][int(_real_pos[-1].item())].item()) if len(_real_pos) else -1
+                logger.info(
+                    "        pixel_values=%s input_ids=%s labels=%s | tokens_prompt_enmascarados=%d | ultimo_token_real=%d (EOS=%s)",
+                    tuple(encoding["pixel_values"].shape),
+                    tuple(encoding["input_ids"].shape),
+                    tuple(encoding["labels"].shape),
+                    n_prompt_tokens,
+                    _last_real,
+                    _last_real == _eos_id,
+                )
             
             return encoding
             

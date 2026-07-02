@@ -1,0 +1,2 @@
+config_name,experiment,lr_bridge,total_steps,best_val_loss,best_step,final_train_loss,timestamp
+Exp3_Asclepius,exp3_asclepius_puente,0.0001,16875,0.7807170748710632,10625,0.6778,2026-06-24 00:22:47

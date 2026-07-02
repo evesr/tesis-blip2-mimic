@@ -1,0 +1,59 @@
+{
+  "mode": "linear_probe",
+  "apply_lora": false,
+  "raddino_model": "microsoft/rad-dino",
+  "num_labels": 14,
+  "labels": [
+    "No Finding",
+    "Enlarged Cardiomediastinum",
+    "Cardiomegaly",
+    "Lung Opacity",
+    "Lung Lesion",
+    "Edema",
+    "Consolidation",
+    "Pneumonia",
+    "Atelectasis",
+    "Pneumothorax",
+    "Pleural Effusion",
+    "Pleural Other",
+    "Fracture",
+    "Support Devices"
+  ],
+  "image_size": [
+    224,
+    224
+  ],
+  "uncertain_policy": "positive",
+  "pos_weight": true,
+  "threshold": 0.5,
+  "amp_dtype": "bfloat16",
+  "cache_features": true,
+  "epochs_run": 40,
+  "best_epoch": 36,
+  "trainable_params": 10766,
+  "total_params": 86591246,
+  "n_train": 131564,
+  "n_val": 38452,
+  "n_test": 18891,
+  "val_metrics": {
+    "macro_precision": 0.29839051685347917,
+    "macro_recall": 0.7150005271063573,
+    "macro_f1": 0.38903217853123845,
+    "macro_auroc": 0.7887559174209002,
+    "micro_precision": 0.3228959139946623,
+    "micro_recall": 0.7646041555402965,
+    "micro_f1": 0.4540460539977271
+  },
+  "test_metrics": {
+    "macro_precision": 0.2977676738820424,
+    "macro_recall": 0.7241341453177771,
+    "macro_f1": 0.38926653593511146,
+    "macro_auroc": 0.7939343597347995,
+    "micro_precision": 0.317339881948727,
+    "micro_recall": 0.766654251356816,
+    "micro_f1": 0.44887691205333496
+  },
+  "lora": null,
+  "elapsed_min": 21.43,
+  "device": "cuda"
+}

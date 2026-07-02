@@ -1,0 +1,2 @@
+config_name,llm_r,vit_r,lr_llm,lr_vit,total_steps,best_val_loss,best_step,final_train_loss,timestamp
+Config_B1,32,8,0.0001,5e-05,49375,0.5261821746826172,43125,0.4575,2026-06-08 03:19:36

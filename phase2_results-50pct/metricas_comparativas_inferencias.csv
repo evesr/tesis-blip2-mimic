@@ -1,0 +1,8 @@
+metrica,prompt_disenado_sucio,prompt_disenado_limpio,prompt_disenado_llm_externo,prompt_nuevo_sucio,prompt_nuevo_limpio
+BLEU-4,0.0595,0.1127,0.1055,0.0432,0.0813
+ROUGE-L,0.1597,0.2513,0.2478,0.1334,0.225
+F1-RadGraph,0.1528,0.1706,0.1701,0.1457,0.1682
+ClinicalBERT_P,0.7291,0.7742,0.7715,0.7164,0.7597
+ClinicalBERT_R,0.7986,0.7918,0.7889,0.7848,0.7744
+ClinicalBERT_F1,0.7618,0.7823,0.7795,0.7485,0.7664
+n_muestras,19137.0,19137.0,19137.0,19137.0,19137.0

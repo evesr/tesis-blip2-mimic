@@ -1,6 +1,4 @@
-*.safetensors filter=lfs diff=lfs merge=lfs -text
-*.bin filter=lfs diff=lfs merge=lfs -text
-*.pth filter=lfs diff=lfs merge=lfs -text
-*.pt filter=lfs diff=lfs merge=lfs -text
-*.gz filter=lfs diff=lfs merge=lfs -text
-*.zip filter=lfs diff=lfs merge=lfs -text
+# Git LFS DESHABILITADO: git-lfs no está instalado y los pesos de modelos
+# (*.safetensors, *.pt, *.pth, *.bin), comprimidos (*.gz, *.zip) y datasets
+# grandes se excluyen vía .gitignore (superan el límite de 100 MB de GitHub).
+# No se versiona ningún binario grande en este repositorio.

@@ -1,0 +1,18 @@
+{
+  "config_name":"Exp3_Asclepius",
+  "experiment":"exp3_asclepius_puente",
+  "step":10625,
+  "val_loss":0.7807170749,
+  "param_count":117620736,
+  "trained_modules":[
+    "language_projection",
+    "qformer",
+    "query_tokens"
+  ],
+  "base_model":"Salesforce\/blip2-opt-2.7b",
+  "asclepius_dir":"\/workspace\/tesis-blip2-mimic\/models\/Asclepius-R-7B",
+  "asclepius_variant":"Asclepius-R-7B",
+  "vit_lora_dir":"\/workspace\/tesis-blip2-mimic\/phase2_results-50pct\/checkpoints\/best_model_Config_B1\/vit",
+  "default_prompt":"Question: Generate a medical report with sections Findings and Impression based on this x-ray. Answer:",
+  "saved_at":"2026-06-23 14:59:04"
+}

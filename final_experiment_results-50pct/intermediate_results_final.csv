@@ -1,0 +1,2 @@
+config_name,experiment,lr_bridge,total_steps,best_val_loss,best_step,final_train_loss,timestamp
+Exp_Final,final_raddino_asclepius_puente,1e-05,46875,0.8755708932876587,40625,0.8802,2026-06-28 19:01:56

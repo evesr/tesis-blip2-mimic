@@ -31,14 +31,14 @@ import time
 # ============================================================================
 
 BASE_DIR   = Path("/workspace/tesis-blip2-mimic")
-CSV_PATH   = BASE_DIR / "dataset_10_porciento_final.csv"
-OUTPUT_DIR = BASE_DIR / "imagenes_10_porciento"
+CSV_PATH   = BASE_DIR / "dataset_50pct_para_descarga.csv"
+OUTPUT_DIR = BASE_DIR / "imagenes_50_porciento"
 
 # ARN del Access Point otorgado por PhysioNet para MIMIC-CXR-JPG v2.1.0
 S3_ACCESS_POINT = "arn:aws:s3:us-east-1:724665945834:accesspoint/mimic-cxr-jpg-v2-1-0-01"
 BUCKET_PATH     = "mimic-cxr-jpg/2.1.0/files"
 
-MAX_WORKERS_DEFAULT = 20  # Reducido para evitar throttling en el Access Point
+MAX_WORKERS_DEFAULT = 100  # Reducido para evitar throttling en el Access Point
 
 # ============================================================================
 # VALIDACION DE CREDENCIALES

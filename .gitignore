@@ -43,21 +43,87 @@ ENV/
 *.ipynb
 
 # ───────────────────────────────────────────────
-# IMÁGENES — las únicas excluidas (se pueden re-descargar)
+# IMÁGENES — NO se suben (se pueden re-descargar; pesan cientos de GB)
 # ────────────────────────
+imagenes_*/
 imagenes_10_porciento/
 imagenes_1_porciento/
+imagenes_50_porciento/
 files/
+# Formatos de imagen crudos (radiografías)
+*.dcm
+*.dicom
+*.jpg
+*.jpeg
+*.tif
+*.tiff
 
 # ───────
 # Checkpoints completos del Trainer (no los adaptadores LoRA)
-# Motivo: cada *.safetensors dentro mide ~11 GB, supera el
-# límite duro de GitHub LFS de 2 GB por archivo.
-# Los adaptadores LoRA finales (best_model_Config_X/) SÍ se
-# guardan vía LFS (~512 MB c/u) y están fuera de estas rutas.
+# Motivo: cada *.safetensors dentro mide varios GB, supera el
+# límite duro de GitHub (100 MB por archivo). git-lfs NO está
+# habilitado, por lo que NINGÚN peso de modelo se versiona.
 # ─
 final_results/Config_A/
 final_results/Config_B/
+
+# ───────────────────────────────────────────────────────────
+# MODELOS DESCARGADOS (HF: Asclepius-R, RadDINO, BLIP-2, etc.)
+# Decenas de GB — se re-descargan desde HuggingFace.
+# ───────────────────────────────────────────────────────────
+models/
+
+# ───────────────────────────────────────────────────────────
+# PESOS Y ESTADOS DE MODELOS — superan el límite de GitHub (100 MB)
+# Se excluyen por extensión en TODO el repo (git-lfs no habilitado).
+# ───────────────────────────────────────────────────────────
+*.safetensors
+*.pt
+*.pth
+*.bin
+*.ckpt
+*.onnx
+*.h5
+*.pkl
+*.pickle
+*.npy
+*.npz
+
+# ───────────────────────────────────────────────────────────
+# ARCHIVOS COMPRIMIDOS grandes (datos crudos re-descargables)
+# ───────────────────────────────────────────────────────────
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.gz
+*.7z
+*.rar
+
+# ───────────────────────────────────────────────────────────
+# DATASETS / CSV grandes (>50 MB) — exceden límites de GitHub
+# ───────────────────────────────────────────────────────────
+mimic_database_unificada.csv
+dataset_50pct_para_descarga.csv
+train_split_50pct.csv
+val_split_50pct.csv
+test_split_50pct.csv
+
+# ───────────────────────────────────────────────────────────
+# LOGS de ejecución
+# ───────────────────────────────────────────────────────────
+*.log
+
+# ───────────────────────────────────────────────────────────
+# CSV de predicciones/inferencia >50 MB (dumps re-generables que
+# superan el aviso de tamaño de GitHub). Se conservan las métricas
+# (granulares/globales/comparativos), no los volcados crudos gigantes.
+# ───────────────────────────────────────────────────────────
+phase2_results-50pct/exp1_cot/exp1_final_formatted_llama8b.csv
+phase2_results-50pct/exp1_cot/exp1_final_formatted_results.csv
+phase2_results-50pct/evaluation/predicciones_Config_B1_clean.csv
+phase2_results-50pct/evaluation/predicciones_Config_B1_llmexterno_llama8b.csv
+phase2_results-50pct/evaluation/predicciones_Config_B1_llmexterno.csv
 
 # ──────────────────────────────────────
 # Cache de Hugging Face y herramientas de desarrollo

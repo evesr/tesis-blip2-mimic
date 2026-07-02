@@ -1,0 +1,19 @@
+{
+  "config_name":"Exp_Final",
+  "experiment":"final_raddino_asclepius_puente",
+  "step":40625,
+  "val_loss":0.8755708933,
+  "param_count":117620736,
+  "trained_modules":[
+    "language_projection",
+    "qformer",
+    "query_tokens"
+  ],
+  "base_model":"Salesforce\/blip2-opt-2.7b",
+  "asclepius_dir":"\/workspace\/tesis-blip2-mimic\/models\/Asclepius-R-7B",
+  "asclepius_variant":"Asclepius-R-7B",
+  "raddino_weights":"\/workspace\/tesis-blip2-mimic\/exp2_raddino_results-50pct\/checkpoints\/best_model_Exp2_RadDINO\/exp2_state.pt",
+  "lr_bridge":0.00001,
+  "default_prompt":"Question: Generate a medical report with sections Findings and Impression based on this x-ray. Answer:",
+  "saved_at":"2026-06-28 10:27:12"
+}

@@ -1,0 +1,18 @@
+{
+  "config_name":"Exp2_RadDINO",
+  "experiment":"exp2_raddino_puente",
+  "step":25625,
+  "val_loss":0.2740935087,
+  "param_count":108508544,
+  "trained_modules":[
+    "language_projection",
+    "qformer",
+    "query_tokens",
+    "vision_model"
+  ],
+  "base_model":"Salesforce\/blip2-opt-2.7b",
+  "raddino_model":"microsoft\/rad-dino",
+  "phase2_llm_dir":"\/workspace\/tesis-blip2-mimic\/phase2_results-50pct\/checkpoints\/best_model_Config_B1\/llm",
+  "default_prompt":"Question: Generate a medical report with sections Findings and Impression based on this x-ray. Answer:",
+  "saved_at":"2026-06-19 03:38:55"
+}

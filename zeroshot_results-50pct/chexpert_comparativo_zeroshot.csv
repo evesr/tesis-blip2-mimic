@@ -1,0 +1,17 @@
+nivel,categoria,zeroshot_disenado_sucio_P,zeroshot_disenado_sucio_R,zeroshot_disenado_sucio_F1
+por_patologia,No Finding,0.3587,0.3199,0.3382
+por_patologia,Enlarged Cardiomediastinum,0.0663,0.2732,0.1067
+por_patologia,Cardiomegaly,0.1973,0.706,0.3084
+por_patologia,Lung Opacity,0.2478,0.4278,0.3138
+por_patologia,Lung Lesion,0.0327,0.6923,0.0624
+por_patologia,Edema,0.1407,0.0897,0.1096
+por_patologia,Consolidation,0.05,0.3171,0.0863
+por_patologia,Pneumonia,0.1572,0.0594,0.0863
+por_patologia,Atelectasis,0.2139,0.3961,0.2778
+por_patologia,Pneumothorax,0.0561,0.7252,0.1041
+por_patologia,Pleural Effusion,0.2291,0.557,0.3247
+por_patologia,Pleural Other,0.0113,0.5837,0.0221
+por_patologia,Fracture,0.0292,0.0574,0.0387
+por_patologia,Support Devices,0.2398,0.6683,0.3529
+general,MICRO (pooled 14 clases),0.1446,0.4213,0.2153
+general,MACRO (nanmean 14 clases),0.145,0.4195,0.1809
