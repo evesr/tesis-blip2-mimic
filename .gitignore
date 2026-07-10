@@ -152,3 +152,17 @@ semifinal_results/Config_5/
 semifinal_results/Config_6/
 semifinal_results/checkpoints/
 grid_search_results/temp_*/
+
+# ───────────────────────────────────────────────────────────
+# Resultados/modelos grandes generados durante evaluaciones recientes
+# ───────────────────────────────────────────────────────────
+phase1_final_results/
+phase1_semifinal_results/
+final_experiment_tier1_results-50pct/Exp_Final_Tier1/
+final_experiment_tier1_results-50pct/plots/
+phase1_10pct_eval_results/predicciones_*.csv
+phase1_10pct_eval_results/resultados_granulares_*.csv
+phase1_semifinal_1pct_eval_results/predicciones_*.csv
+phase1_semifinal_1pct_eval_results/resultados_granulares_*.csv
+phase1_semifinal_1pct_eval_results/_sanitized_adapters/
+phase1_semifinal_1pct_eval_results/_run_inner.sh

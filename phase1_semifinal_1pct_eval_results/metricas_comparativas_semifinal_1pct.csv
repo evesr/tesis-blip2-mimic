@@ -1,0 +1,4 @@
+config,r,alpha,n_samples,bleu_4,rouge_l
+Config_4,16,32,397,0.0477,0.1348
+Config_5,16,16,397,0.0471,0.1387
+Config_6,32,64,397,0.044,0.1348

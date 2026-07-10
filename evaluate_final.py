@@ -255,6 +255,7 @@ def fase1_inferencia(
     config_dict: Dict,
     output_dir: Path,
     num_samples: Optional[int] = None,
+    wrap_full_model: bool = False,
 ) -> Path:
     """
     Genera reportes para el Test Set completo y los exporta a predicciones_X.csv.
@@ -291,13 +292,32 @@ def fase1_inferencia(
         device_map="auto"
     )
 
-    logger.info("  Incrustando adaptadores LoRA ESTRICTAMENTE en el language_model...")
-    # LA LLAVE MÁGICA: Conectar LoRA exactamente en la misma sub-red donde se entrenó
-    base_model.language_model = PeftModel.from_pretrained(
-        base_model.language_model,
-        str(model_dir)
-    )
-    model = base_model
+    # Auto-detectar el nivel de wrapping según las claves del adapter:
+    #   • claves con '.language_model.'  -> LoRA entrenada sobre el MODELO COMPLETO (Blip2)
+    #   • en caso contrario              -> LoRA sobre el language_model (submodulo OPT)
+    def _needs_full_wrap(mdir: Path) -> bool:
+        st = mdir / "adapter_model.safetensors"
+        if not st.exists():
+            return False
+        try:
+            from safetensors import safe_open
+            with safe_open(str(st), framework="pt") as f:
+                return any(".language_model." in k for k in f.keys())
+        except Exception:
+            return False
+
+    if wrap_full_model or _needs_full_wrap(model_dir):
+        logger.info("  Incrustando LoRA sobre el MODELO COMPLETO (Blip2) y fusionando (merge_and_unload)...")
+        peft_model = PeftModel.from_pretrained(base_model, str(model_dir))
+        model = peft_model.merge_and_unload()
+    else:
+        logger.info("  Incrustando adaptadores LoRA ESTRICTAMENTE en el language_model...")
+        # LA LLAVE MÁGICA: Conectar LoRA exactamente en la misma sub-red donde se entrenó
+        base_model.language_model = PeftModel.from_pretrained(
+            base_model.language_model,
+            str(model_dir)
+        )
+        model = base_model
     # // FIN MODIFICACIÓN
     model.eval()
     device = next(model.parameters()).device
